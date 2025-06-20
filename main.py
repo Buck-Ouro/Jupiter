@@ -56,7 +56,7 @@ async def scrape_jupiter_apr():
         if proxy_url:
             parsed = urlparse(proxy_url)
             proxy_config = {
-                "server": f"{parsed.hostname}:{parsed.port}",
+                "server": f"{parsed.scheme}://{parsed.hostname}:{parsed.port}",
                 "username": parsed.username,
                 "password": parsed.password
             }
