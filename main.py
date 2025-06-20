@@ -47,6 +47,9 @@ else:
 
 # Step 3: Scraper
 async def scrape_jupiter_apr():
+    from pathlib import Path
+    from tempfile import TemporaryDirectory
+
     async with async_playwright() as p:
         parsed = urlparse(proxy_url)
         proxy_config = {
@@ -55,40 +58,40 @@ async def scrape_jupiter_apr():
             "password": parsed.password
         }
 
-        browser = await p.chromium.launch(
-            headless=True,
-            proxy=proxy_config
-        )
+        with TemporaryDirectory() as tmp_profile:
+            context = await p.chromium.launch_persistent_context(
+                user_data_dir=tmp_profile,
+                headless=True,
+                proxy=proxy_config,
+                ignore_https_errors=True,
+                viewport={"width": 1280, "height": 720},
+                locale="en-US"
+            )
+            page = context.pages[0] if context.pages else await context.new_page()
 
-        context = await browser.new_context(
-            ignore_https_errors=True  # ✅ Moved here
-        )
-        page = await context.new_page()
+            try:
+                await page.goto("https://httpbin.org/ip", wait_until="domcontentloaded")
+                print("🌐 Proxy IP content:")
+                print(await page.inner_text("body"))
 
-        try:
-            await page.goto("https://httpbin.org/ip", wait_until="domcontentloaded")
-            print("🌐 Proxy IP content:")
-            print(await page.inner_text("body"))
+                await page.goto("https://jup.ag/perps-earn", wait_until="networkidle", timeout=60000)
+                await page.wait_for_timeout(5000)
 
-            await page.goto("https://jup.ag/perps-earn", wait_until="networkidle", timeout=60000)
-            await page.wait_for_timeout(5000)
+                await page.wait_for_selector("p.cursor-pointer", timeout=10000)
+                for el in await page.query_selector_all("p.cursor-pointer"):
+                    txt = await el.inner_text()
+                    if "%" in txt:
+                        await el.click()
+                        break
 
-            await page.wait_for_selector("p.cursor-pointer", timeout=10000)
-            for el in await page.query_selector_all("p.cursor-pointer"):
-                txt = await el.inner_text()
-                if "%" in txt:
-                    await el.click()
-                    break
+                await page.wait_for_timeout(2000)
+                await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                await page.wait_for_timeout(2000)
 
-            await page.wait_for_timeout(2000)
-            await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-            await page.wait_for_timeout(2000)
+                return await page.inner_text("body")
 
-            return await page.inner_text("body")
-
-        finally:
-            await context.close()
-            await browser.close()
+            finally:
+                await context.close()
             
 text = asyncio.get_event_loop().run_until_complete(scrape_jupiter_apr())
 lines = text.splitlines()
