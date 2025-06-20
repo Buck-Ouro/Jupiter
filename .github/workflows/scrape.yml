@@ -28,4 +28,5 @@ jobs:
       env:
         GOOGLEAPI: ${{ secrets.GOOGLEAPI }}
         SHEET_ID: ${{ secrets.SHEET_ID }}
+        PROXY_HTTP: ${{ secrets.PROXY_HTTP }}
       run: python main.py
