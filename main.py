@@ -47,29 +47,68 @@ else:
 async def scrape_jupiter_apr():
     async with async_playwright() as p:
         browser_args = {"headless": True}
+        context_args = {}
+        
         if proxy_url:
-            browser_args["proxy"] = {"server": proxy_url}
+            print(f"Using proxy: {proxy_url.split('@')[0]}@[redacted]@{proxy_url.split('@')[1]}")
             
-        browser = await p.chromium.launch(**browser_args)
-        page = await browser.new_page()
-        await page.goto("https://jup.ag/perps-earn", wait_until="networkidle")
-        await page.wait_for_timeout(5000)
-        # Click APR toggle
-        await page.wait_for_selector("p.cursor-pointer", timeout=10000)
-        for el in await page.query_selector_all("p.cursor-pointer"):
-            txt = await el.inner_text()
-            if "%" in txt:
-                await el.click()
-                break
-        await page.wait_for_timeout(2000)
-        await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-        await page.wait_for_timeout(2000)
-        body = await page.inner_text("body")
-        await browser.close()
-        return body
+            # Parse the proxy URL (format: http://username:password@host:port)
+            proxy_parts = proxy_url.replace("http://", "").split('@')
+            if len(proxy_parts) == 2:
+                # Has authentication (username:password@host:port)
+                credentials, server = proxy_parts
+                username, password = credentials.split(':')
+                proxy_server = f"http://{server}"
+            else:
+                # No authentication (host:port)
+                proxy_server = proxy_url
+                username = password = None
 
-text = asyncio.get_event_loop().run_until_complete(scrape_jupiter_apr())
-lines = text.splitlines()
+            context_args["proxy"] = {
+                "server": proxy_server,
+            }
+            
+            if username and password:
+                context_args["proxy"].update({
+                    "username": username,
+                    "password": password
+                })
+
+        browser = await p.chromium.launch(**browser_args)
+        context = await browser.new_context(**context_args)
+        page = await context.new_page()
+
+        try:
+            # Test proxy connection first
+            print("Testing proxy connection to httpbin.org...")
+            await page.goto("https://httpbin.org/ip", timeout=30000)
+            print("Proxy test successful:", await page.inner_text("body"))
+            
+            # Actual scraping
+            print("Scraping Jupiter.ag...")
+            await page.goto("https://jup.ag/perps-earn", wait_until="networkidle", timeout=60000)
+            await page.wait_for_timeout(5000)
+            
+            # Click APR toggle
+            await page.wait_for_selector("p.cursor-pointer", timeout=10000)
+            for el in await page.query_selector_all("p.cursor-pointer"):
+                txt = await el.inner_text()
+                if "%" in txt:
+                    await el.click()
+                    break
+            
+            await page.wait_for_timeout(2000)
+            await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+            await page.wait_for_timeout(2000)
+            body = await page.inner_text("body")
+            return body
+            
+        except Exception as e:
+            print(f"Scraping failed: {str(e)}")
+            raise
+        finally:
+            await context.close()
+            await browser.close()
 
 # Step 4: Parsing Helpers
 def extract_after(keyword, lines, must_prefix=None):
