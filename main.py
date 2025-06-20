@@ -13,6 +13,7 @@ nest_asyncio.apply()
 # Step 1: Authenticate with Google Sheets
 sa_json = os.environ.get("GOOGLEAPI")
 sheet_id = os.environ.get("SHEET_ID")
+proxy_url = os.environ.get("PROXY_HTTP")
 
 if not sa_json or not sheet_id:
     raise ValueError("Missing environment variables: GOOGLEAPI or SHEET_ID")
@@ -45,7 +46,11 @@ else:
 # Step 3: Scraper
 async def scrape_jupiter_apr():
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
+        browser_args = {"headless": True}
+        if proxy_url:
+            browser_args["proxy"] = {"server": proxy_url}
+            
+        browser = await p.chromium.launch(**browser_args)
         page = await browser.new_page()
         await page.goto("https://jup.ag/perps-earn", wait_until="networkidle")
         await page.wait_for_timeout(5000)
