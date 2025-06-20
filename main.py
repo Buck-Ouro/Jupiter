@@ -110,6 +110,9 @@ async def scrape_jupiter_apr():
             await context.close()
             await browser.close()
 
+text = asyncio.get_event_loop().run_until_complete(scrape_jupiter_apr())
+lines = text.splitlines()
+
 # Step 4: Parsing Helpers
 def extract_after(keyword, lines, must_prefix=None):
     for i, line in enumerate(lines):
