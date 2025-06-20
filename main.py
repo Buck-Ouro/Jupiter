@@ -46,70 +46,65 @@ else:
 # Step 3: Scraper
 async def scrape_jupiter_apr():
     async with async_playwright() as p:
-        browser_args = {"headless": True}
-        context_args = {}
+        # Configure browser to look more human-like
+        browser = await p.chromium.launch(
+            headless=True,
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                "--start-maximized"
+            ]
+        )
         
-        if proxy_url:
-            print(f"Using proxy: {proxy_url.split('@')[0]}@[redacted]@{proxy_url.split('@')[1]}")
-            
-            # Parse the proxy URL (format: http://username:password@host:port)
-            proxy_parts = proxy_url.replace("http://", "").split('@')
-            if len(proxy_parts) == 2:
-                # Has authentication (username:password@host:port)
-                credentials, server = proxy_parts
-                username, password = credentials.split(':')
-                proxy_server = f"http://{server}"
-            else:
-                # No authentication (host:port)
-                proxy_server = proxy_url
-                username = password = None
+        # Set up context with proxy and stealth settings
+        context = await browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+            viewport={"width": 1366, "height": 768},
+            proxy={
+                "server": proxy_url,
+                "username": proxy_url.split('://')[1].split('@')[0].split(':')[0],
+                "password": proxy_url.split('://')[1].split('@')[0].split(':')[1]
+            } if proxy_url else None,
+            java_script_enabled=True,
+            bypass_csp=True
+        )
 
-            context_args["proxy"] = {
-                "server": proxy_server,
-            }
-            
-            if username and password:
-                context_args["proxy"].update({
-                    "username": username,
-                    "password": password
-                })
+        # Disable WebDriver detection
+        await context.add_init_script("""
+            delete navigator.__proto__.webdriver;
+            Object.defineProperty(navigator, 'webdriver', {
+                get: () => undefined
+            });
+        """)
 
-        browser = await p.chromium.launch(**browser_args)
-        context = await browser.new_context(**context_args)
         page = await context.new_page()
-
+        
         try:
-            # Test proxy connection first
-            print("Testing proxy connection to httpbin.org...")
-            await page.goto("https://httpbin.org/ip", timeout=30000)
-            print("Proxy test successful:", await page.inner_text("body"))
+            # Randomize mouse movements and delays
+            await page.goto("https://jup.ag/perps-earn", 
+                          wait_until="networkidle",
+                          timeout=60000,
+                          referer="https://www.google.com/")
             
-            # Actual scraping
-            print("Scraping Jupiter.ag...")
-            await page.goto("https://jup.ag/perps-earn", wait_until="networkidle", timeout=60000)
-            await page.wait_for_timeout(5000)
+            # Human-like interaction pattern
+            await page.wait_for_timeout(random.uniform(1000, 3000))
+            await page.mouse.move(random.randint(0, 500), random.randint(0, 300))
+            await page.wait_for_timeout(random.uniform(500, 1500))
             
-            # Click APR toggle
-            await page.wait_for_selector("p.cursor-pointer", timeout=10000)
-            for el in await page.query_selector_all("p.cursor-pointer"):
-                txt = await el.inner_text()
-                if "%" in txt:
-                    await el.click()
-                    break
+            # Try finding APR toggle with multiple selectors
+            apr_toggle = await page.query_selector("p.cursor-pointer:has-text('%'), .apr-toggle, [data-testid='apr-button']")
+            if apr_toggle:
+                await apr_toggle.click()
             
-            await page.wait_for_timeout(2000)
-            await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-            await page.wait_for_timeout(2000)
-            body = await page.inner_text("body")
-            return body
+            await page.wait_for_timeout(random.uniform(1000, 2000))
+            await page.evaluate("window.scrollTo(0, document.body.scrollHeight/2)")
+            await page.wait_for_timeout(random.uniform(1000, 2000))
             
-        except Exception as e:
-            print(f"Scraping failed: {str(e)}")
-            raise
+            return await page.inner_text("body")
+            
         finally:
             await context.close()
             await browser.close()
-
+            
 text = asyncio.get_event_loop().run_until_complete(scrape_jupiter_apr())
 lines = text.splitlines()
 
