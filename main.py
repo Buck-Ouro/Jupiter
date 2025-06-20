@@ -1,5 +1,6 @@
 import os
 import asyncio
+import random
 from playwright.async_api import async_playwright
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
