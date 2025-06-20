@@ -8,6 +8,7 @@ import nest_asyncio
 import datetime
 import re
 import json
+from urllib.parse import urlparse
 
 nest_asyncio.apply()
 
@@ -46,38 +47,31 @@ else:
 
 # Step 3: Scraper
 async def scrape_jupiter_apr():
-    from urllib.parse import urlparse
-
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
+        parsed = urlparse(proxy_url)
+        proxy_config = {
+            "server": f"{parsed.scheme}://{parsed.hostname}:{parsed.port}",
+            "username": parsed.username,
+            "password": parsed.password
+        }
 
-        # Properly parse the proxy config
-        proxy_config = None
-        if proxy_url:
-            parsed = urlparse(proxy_url)
-            proxy_config = {
-                "server": f"{parsed.scheme}://{parsed.hostname}:{parsed.port}",
-                "username": parsed.username,
-                "password": parsed.password
-            }
-
-        # Create context with HTTPS errors ignored
-        context = await browser.new_context(
+        browser = await p.chromium.launch(
+            headless=True,
             proxy=proxy_config,
             ignore_https_errors=True
         )
-
+        context = await browser.new_context()
         page = await context.new_page()
 
         try:
-            # Navigate to the page
-            await page.goto("https://jup.ag/perps-earn", 
-                            wait_until="networkidle",
-                            timeout=60000)
+            await page.goto("https://httpbin.org/ip", wait_until="domcontentloaded")
+            print("🌐 Proxy IP content:")
+            print(await page.inner_text("body"))
 
+            # Now go to Jupiter
+            await page.goto("https://jup.ag/perps-earn", wait_until="networkidle", timeout=60000)
             await page.wait_for_timeout(5000)
 
-            # Click the APR toggle
             await page.wait_for_selector("p.cursor-pointer", timeout=10000)
             for el in await page.query_selector_all("p.cursor-pointer"):
                 txt = await el.inner_text()
