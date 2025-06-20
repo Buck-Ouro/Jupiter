@@ -57,10 +57,12 @@ async def scrape_jupiter_apr():
 
         browser = await p.chromium.launch(
             headless=True,
-            proxy=proxy_config,
-            ignore_https_errors=True
+            proxy=proxy_config
         )
-        context = await browser.new_context()
+
+        context = await browser.new_context(
+            ignore_https_errors=True  # ✅ Moved here
+        )
         page = await context.new_page()
 
         try:
@@ -68,7 +70,6 @@ async def scrape_jupiter_apr():
             print("🌐 Proxy IP content:")
             print(await page.inner_text("body"))
 
-            # Now go to Jupiter
             await page.goto("https://jup.ag/perps-earn", wait_until="networkidle", timeout=60000)
             await page.wait_for_timeout(5000)
 
