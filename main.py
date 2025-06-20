@@ -1,4 +1,4 @@
-import os
+    import os
 import asyncio
 import random
 from playwright.async_api import async_playwright
@@ -46,42 +46,51 @@ else:
 
 # Step 3: Scraper
 async def scrape_jupiter_apr():
+    from urllib.parse import urlparse
+
     async with async_playwright() as p:
-        
         browser = await p.chromium.launch(headless=True)
-        
+
+        # Properly parse the proxy config
+        proxy_config = None
+        if proxy_url:
+            parsed = urlparse(proxy_url)
+            proxy_config = {
+                "server": f"{parsed.hostname}:{parsed.port}",
+                "username": parsed.username,
+                "password": parsed.password
+            }
+
+        # Create context with HTTPS errors ignored
         context = await browser.new_context(
-            proxy={
-                "server": proxy_url,
-                "username": proxy_url.split('://')[1].split('@')[0].split(':')[0],
-                "password": proxy_url.split('://')[1].split('@')[0].split(':')[1]
-            } if proxy_url else None
+            proxy=proxy_config,
+            ignore_https_errors=True
         )
-        
+
         page = await context.new_page()
-        
+
         try:
-            # Basic navigation like Colab version
+            # Navigate to the page
             await page.goto("https://jup.ag/perps-earn", 
-                          wait_until="networkidle",
-                          timeout=60000)
-            
+                            wait_until="networkidle",
+                            timeout=60000)
+
             await page.wait_for_timeout(5000)
-            
-            # Original click logic
+
+            # Click the APR toggle
             await page.wait_for_selector("p.cursor-pointer", timeout=10000)
             for el in await page.query_selector_all("p.cursor-pointer"):
                 txt = await el.inner_text()
                 if "%" in txt:
                     await el.click()
                     break
-            
+
             await page.wait_for_timeout(2000)
             await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
             await page.wait_for_timeout(2000)
-            
+
             return await page.inner_text("body")
-            
+
         finally:
             await context.close()
             await browser.close()
