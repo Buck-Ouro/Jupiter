@@ -27,7 +27,7 @@ sheet = client.open_by_key(sheet_id).worksheet("Cap")
 
 # Step 2: Find or create today's row
 today = datetime.date.today()
-today_str = today.strftime("%Y-%m-%d")
+today_str = today.strftime("%d-%m-%Y")
 col_a = sheet.col_values(1)
 
 if today_str in col_a:
