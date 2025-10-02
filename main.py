@@ -27,7 +27,7 @@ creds = ServiceAccountCredentials.from_json_keyfile_dict(
 client = gspread.authorize(creds)
 sheet = client.open_by_key(sheet_id).worksheet("Jupiter")
 
-# Step 2: Find or create today’s row
+# Step 2: Find or create today's row
 today = datetime.date.today()
 today_str = today.strftime("%d/%m/%Y")
 col_a = sheet.col_values(1)
@@ -75,21 +75,19 @@ async def scrape_jupiter_apr():
                 print("🌐 Proxy IP content:")
                 print(await page.inner_text("body"))
 
-                # Use the new URL
                 print("📍 Navigating to Jupiter perps-earn...")
                 await page.goto("https://jup.ag/perps-earn", wait_until="networkidle", timeout=60000)
-                await page.wait_for_timeout(8000)  # Longer initial wait
+                await page.wait_for_timeout(8000)
 
-                # Debug: Check what's on the page
                 print("📄 Checking page content...")
                 
                 # Try multiple selector strategies
                 clicked = False
                 selectors = [
-                    "p.cursor-pointer",
-                    "p[class*='cursor']",
+                    "button.cursor-pointer",  # New button structure
                     "button:has-text('%')",
-                    "div:has-text('APR')",
+                    "p.cursor-pointer",       # Old structure as fallback
+                    "p[class*='cursor']",
                     "[role='button']:has-text('%')"
                 ]
                 
@@ -110,34 +108,39 @@ async def scrape_jupiter_apr():
                         if clicked:
                             break
                     except Exception as e:
-                        print(f"   ⚠️ Selector failed: {e}")
+                        print(f"   ⚠️ Selector failed: {str(e)[:100]}")
                         continue
 
                 if not clicked:
                     print("⚠️ Could not find clickable element, continuing anyway...")
 
-                # Wait and scroll
                 await page.wait_for_timeout(3000)
                 await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
                 await page.wait_for_timeout(3000)
 
-                # Get all text content
                 body_text = await page.inner_text("body")
                 print(f"📊 Retrieved {len(body_text)} characters")
+                print("=" * 80)
+                print("FIRST 2000 CHARACTERS OF PAGE:")
+                print("=" * 80)
+                print(body_text[:2000])
+                print("=" * 80)
                 
                 return body_text
 
             except Exception as e:
                 print(f"❌ Error during scraping: {e}")
-                # Take screenshot for debugging
-                try:
-                    await page.screenshot(path="error_screenshot.png")
-                    print("📸 Screenshot saved to error_screenshot.png")
-                except:
-                    pass
                 raise
             finally:
                 await context.close()
+
+# Run scraper
+print("🚀 Starting scraper...")
+text = asyncio.get_event_loop().run_until_complete(scrape_jupiter_apr())
+
+# Initialize lines
+lines = text.splitlines()
+print(f"\n📝 Total lines extracted: {len(lines)}")
 
 # Step 4: Parsing Helpers
 def extract_after(keyword, lines, must_prefix=None):
@@ -163,16 +166,35 @@ def extract_usdt_value(lines):
                         return match.group(0)
     return ""
 
-# Step 5: Extract Data
+# Step 5: Extract Data - with debug output
+print("\n🔍 Searching for data fields...")
+
 B_str = extract_after("Total Value Locked", lines, must_prefix="$")
+print(f"   Total Value Locked (B): {B_str if B_str else 'NOT FOUND'}")
+
 C_str = extract_after("Wrapped SOL", lines, must_prefix="$")
+print(f"   Wrapped SOL (C): {C_str if C_str else 'NOT FOUND'}")
+
 E_str = extract_after("Ether (Portal)", lines, must_prefix="$")
+print(f"   Ether Portal (E): {E_str if E_str else 'NOT FOUND'}")
+
 G_str = extract_after("Wrapped BTC (Portal)", lines, must_prefix="$")
+print(f"   Wrapped BTC (G): {G_str if G_str else 'NOT FOUND'}")
+
 I_str = extract_after("USD Coin", lines, must_prefix="$")
+print(f"   USD Coin (I): {I_str if I_str else 'NOT FOUND'}")
+
 K_str = extract_usdt_value(lines)
+print(f"   USDT (K): {K_str if K_str else 'NOT FOUND'}")
+
 M_str = extract_after("Total Supply", lines)
+print(f"   Total Supply (M): {M_str if M_str else 'NOT FOUND'}")
+
 N_str = extract_after("JLP Price", lines, must_prefix="$")
+print(f"   JLP Price (N): {N_str if N_str else 'NOT FOUND'}")
+
 O_str = extract_after("APR", lines)
+print(f"   APR (O): {O_str if O_str else 'NOT FOUND'}")
 
 # Step 6: Convert and Calculate Ratios
 B = float(B_str) if B_str else 0.0
@@ -186,9 +208,20 @@ I = float(I_str) if I_str else 0.0
 J = I/B if B else 0.0
 K = float(K_str) if K_str else 0.0
 L = K/B if B else 0.0
-M = float(M_str.replace("JLP","")) if M_str else 0.0
+M = float(M_str.replace("JLP","").replace(",","").strip()) if M_str else 0.0
 N = float(N_str) if N_str else 0.0
 O = float(O_str) if O_str else 0.0
+
+print(f"\n📊 Calculated values:")
+print(f"   B (TVL): ${B:,.2f}")
+print(f"   C (SOL): ${C:,.2f} | D (ratio): {D:.4f}")
+print(f"   E (ETH): ${E:,.2f} | F (ratio): {F:.4f}")
+print(f"   G (BTC): ${G:,.2f} | H (ratio): {H:.4f}")
+print(f"   I (USDC): ${I:,.2f} | J (ratio): {J:.4f}")
+print(f"   K (USDT): ${K:,.2f} | L (ratio): {L:.4f}")
+print(f"   M (Supply): {M:,.2f}")
+print(f"   N (Price): ${N:.4f}")
+print(f"   O (APR): {O}%")
 
 # Step 7: Write to Sheet
 col_map = {
@@ -197,6 +230,7 @@ col_map = {
    12: L, 13: M, 14: N, 15: f"{O}%" if O else "",
 }
 
+print(f"\n💾 Writing to sheet row {row_idx}...")
 for col_idx, val in col_map.items():
     cell = f"{chr(64+col_idx)}{row_idx}"
     sheet.update(
@@ -205,4 +239,4 @@ for col_idx, val in col_map.items():
         value_input_option="USER_ENTERED"
     )
 
-print(f"✅ Row {row_idx} updated.")
+print(f"✅ Row {row_idx} updated successfully!")
