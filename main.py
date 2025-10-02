@@ -64,8 +64,9 @@ async def scrape_jupiter_apr():
                 headless=True,
                 proxy=proxy_config,
                 ignore_https_errors=True,
-                viewport={"width": 1280, "height": 720},
-                locale="en-US"
+                viewport={"width": 1920, "height": 1080},
+                locale="en-US",
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
             )
             page = context.pages[0] if context.pages else await context.new_page()
 
@@ -74,27 +75,69 @@ async def scrape_jupiter_apr():
                 print("🌐 Proxy IP content:")
                 print(await page.inner_text("body"))
 
+                # Use the new URL
+                print("📍 Navigating to Jupiter perps-earn...")
                 await page.goto("https://jup.ag/perps-earn", wait_until="networkidle", timeout=60000)
-                await page.wait_for_timeout(5000)
+                await page.wait_for_timeout(8000)  # Longer initial wait
 
-                await page.wait_for_selector("p.cursor-pointer", timeout=10000)
-                for el in await page.query_selector_all("p.cursor-pointer"):
-                    txt = await el.inner_text()
-                    if "%" in txt:
-                        await el.click()
-                        break
+                # Debug: Check what's on the page
+                print("📄 Checking page content...")
+                
+                # Try multiple selector strategies
+                clicked = False
+                selectors = [
+                    "p.cursor-pointer",
+                    "p[class*='cursor']",
+                    "button:has-text('%')",
+                    "div:has-text('APR')",
+                    "[role='button']:has-text('%')"
+                ]
+                
+                for selector in selectors:
+                    try:
+                        print(f"🔍 Trying selector: {selector}")
+                        await page.wait_for_selector(selector, timeout=5000)
+                        elements = await page.query_selector_all(selector)
+                        print(f"   Found {len(elements)} elements")
+                        
+                        for el in elements:
+                            txt = await el.inner_text()
+                            if "%" in txt:
+                                print(f"   ✅ Clicking element with text: {txt[:50]}")
+                                await el.click()
+                                clicked = True
+                                break
+                        if clicked:
+                            break
+                    except Exception as e:
+                        print(f"   ⚠️ Selector failed: {e}")
+                        continue
 
-                await page.wait_for_timeout(2000)
+                if not clicked:
+                    print("⚠️ Could not find clickable element, continuing anyway...")
+
+                # Wait and scroll
+                await page.wait_for_timeout(3000)
                 await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-                await page.wait_for_timeout(2000)
+                await page.wait_for_timeout(3000)
 
-                return await page.inner_text("body")
+                # Get all text content
+                body_text = await page.inner_text("body")
+                print(f"📊 Retrieved {len(body_text)} characters")
+                
+                return body_text
 
+            except Exception as e:
+                print(f"❌ Error during scraping: {e}")
+                # Take screenshot for debugging
+                try:
+                    await page.screenshot(path="error_screenshot.png")
+                    print("📸 Screenshot saved to error_screenshot.png")
+                except:
+                    pass
+                raise
             finally:
                 await context.close()
-            
-text = asyncio.get_event_loop().run_until_complete(scrape_jupiter_apr())
-lines = text.splitlines()
 
 # Step 4: Parsing Helpers
 def extract_after(keyword, lines, must_prefix=None):
