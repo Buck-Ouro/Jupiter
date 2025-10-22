@@ -1,4 +1,4 @@
-name: Cap Daily Scraper
+name: Daily Scraper
 
 on:
   schedule:
@@ -30,3 +30,10 @@ jobs:
         SHEET_ID: ${{ secrets.SHEET_ID }}
         PROXY_HTTP: ${{ secrets.PROXY_HTTP }}
       run: python cap.py
+
+    - name: Run Reservoir script
+      env:
+        GOOGLEAPI: ${{ secrets.GOOGLEAPI }}
+        SHEET_ID: ${{ secrets.SHEET_ID }}
+        PROXY_HTTP: ${{ secrets.PROXY_HTTP }}
+      run: python reservoir.py
