@@ -59,12 +59,20 @@ async def scrape_neutrl_stats():
         
         # Check if this is the sentio API endpoint
         if "sentio" in response.url:
-            print(f"🎯 Found sentio request: {response.url}")
+            print(f"🎯 Found sentio request: {response.url} [Status: {response.status}]")
             try:
                 # Get the response body
                 body = await response.json()
                 
                 print(f"📦 Response body keys: {list(body.keys())}")
+                
+                # If there's an error, print it
+                if "error" in body:
+                    print(f"❌ API Error: {body['error']}")
+                    if response.status == 403:
+                        print(f"⚠️ 403 Forbidden - Bot protection is blocking the request")
+                    return  # Don't process error responses
+                
                 if "data" in body:
                     print(f"📦 Data keys: {list(body['data'].keys())}")
                 
@@ -98,22 +106,48 @@ async def scrape_neutrl_stats():
                 ignore_https_errors=True,
                 viewport={"width": 1920, "height": 1080},
                 locale="en-US",
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                # Add more stealth options
+                args=[
+                    '--disable-blink-features=AutomationControlled',
+                    '--disable-dev-shm-usage',
+                    '--no-sandbox',
+                ],
+                ignore_default_args=['--enable-automation'],
             )
             page = context.pages[0] if context.pages else await context.new_page()
+            
+            # Add stealth scripts
+            await page.add_init_script("""
+                Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+                Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
+                Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
+                window.chrome = {runtime: {}};
+            """)
 
-            # Attach response listener
+            # CRITICAL: Attach listener IMMEDIATELY before any navigation
             page.on("response", handle_response)
+            print("🎧 Response listener attached - ready to capture network traffic")
 
             try:
-                # Verify proxy
+                # Verify proxy first
                 await page.goto("https://httpbin.org/ip", wait_until="domcontentloaded")
                 print("🌐 Proxy IP content:")
                 print(await page.inner_text("body"))
 
-                # Navigate to Neutrl rewards page
-                print("📍 Navigating to Neutrl rewards page...")
-                await page.goto("https://app.neutrl.fi/rewards", wait_until="networkidle", timeout=60000)
+                # IMPORTANT: Visit homepage first to establish session (listener already active)
+                print("🏠 Visiting homepage to establish session...")
+                await page.goto("https://app.neutrl.fi/", wait_until="networkidle", timeout=60000)
+                await page.wait_for_timeout(3000)
+                print("✅ Homepage loaded, cookies/session established")
+
+                # Navigate to rewards page - listener will catch API calls AS THEY HAPPEN
+                print("📍 Navigating to rewards page (listener is capturing)...")
+                await page.goto("https://app.neutrl.fi/rewards", wait_until="domcontentloaded", timeout=60000)
+                
+                # Wait for network activity to settle
+                print("⏳ Waiting for API calls to complete...")
+                await page.wait_for_load_state("networkidle", timeout=30000)
                 
                 # Wait for API calls to complete
                 print("⏳ Waiting for API responses...")
