@@ -89,16 +89,19 @@ async def scrape_neutrl_stats():
 
                 print("📍 Navigating to Neutrl rewards page...")
                 await page.goto("https://app.neutrl.fi/rewards", wait_until="networkidle", timeout=60000)
-                await page.wait_for_timeout(5000)
-
-                print("📄 Extracting page content...")
                 
+                print("⏳ Waiting for initial content to load...")
+                await page.wait_for_timeout(3000)
+
                 # Scroll to ensure all content is loaded
                 await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
                 await page.wait_for_timeout(2000)
                 await page.evaluate("window.scrollTo(0, 0)")
-                await page.wait_for_timeout(2000)
+                
+                print("⏳ Waiting additional 5 seconds for TVL to load...")
+                await page.wait_for_timeout(5000)
 
+                print("📄 Extracting page content...")
                 body_text = await page.inner_text("body")
                 print(f"📊 Retrieved {len(body_text)} characters")
                 print("=" * 80)
@@ -148,6 +151,29 @@ def extract_value_after_keyword(keyword, lines, lookahead=10):
                     return next_line, number_str, suffix
     return None, None, None
 
+def extract_value_before_keyword(keyword, lines, lookback=10):
+    """
+    Find the keyword and look backwards for a number.
+    lookback: how many lines to search backwards
+    """
+    for i, line in enumerate(lines):
+        if keyword.upper() in line.upper():
+            print(f"   Found keyword '{keyword}' at line {i}: {line}")
+            # Look backwards for a number
+            for j in range(max(0, i - lookback), i):
+                prev_line = lines[j].strip()
+                # Remove commas and dollar signs, look for numbers
+                cleaned = prev_line.replace(",", "").replace("$", "")
+                
+                # Match numbers with optional B/M/K suffix (e.g., $123M or 123M)
+                match = re.match(r"^([\d.]+)([BMK]?)$", cleaned)
+                if match:
+                    number_str = match.group(1)
+                    suffix = match.group(2)
+                    print(f"   Found value: {prev_line} (number: {number_str}, suffix: {suffix})")
+                    return prev_line, number_str, suffix
+    return None, None, None
+
 def convert_to_number(value_str, number_str, suffix):
     """Convert string with suffix (B/M/K) to actual number"""
     if not number_str:
@@ -175,13 +201,19 @@ print(f"   S1 Rewards Issued (B): {rewards_str if rewards_str else 'NOT FOUND'}"
 participants_str, participants_num, participants_suffix = extract_value_after_keyword("TOTAL PARTICIPANTS", lines, lookahead=5)
 print(f"   Total Participants (C): {participants_str if participants_str else 'NOT FOUND'}")
 
+# Extract TVL - look BEFORE the keyword (format: $123M TVL)
+tvl_str, tvl_num, tvl_suffix = extract_value_before_keyword("TVL", lines, lookback=5)
+print(f"   TVL (D): {tvl_str if tvl_str else 'NOT FOUND'}")
+
 # Step 5: Convert to numbers
 total_points = convert_to_number(rewards_str, rewards_num, rewards_suffix)
 participants = int(float(participants_num)) if participants_num else 0
+tvl = convert_to_number(tvl_str, tvl_num, tvl_suffix)
 
 print(f"\n📊 Calculated values:")
 print(f"   Total Points (B): {total_points:,.2f}")
 print(f"   Participants (C): {participants:,}")
+print(f"   TVL (D): {tvl:,.2f}")
 
 # Step 6: Write to Sheet
 print(f"\n💾 Writing to sheet row {row_idx}...")
@@ -200,7 +232,15 @@ sheet.update(
     value_input_option="USER_ENTERED"
 )
 
+# Write TVL to column D
+sheet.update(
+    values=[[tvl]],
+    range_name=f"D{row_idx}:D{row_idx}",
+    value_input_option="USER_ENTERED"
+)
+
 print(f"✅ Row {row_idx} updated successfully!")
 print(f"   Date: {today_str}")
 print(f"   Total Points: {total_points:,.2f}")
 print(f"   Participants: {participants:,}")
+print(f"   TVL: {tvl:,.2f}")
