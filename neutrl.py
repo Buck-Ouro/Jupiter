@@ -50,45 +50,41 @@ async def scrape_neutrl_stats():
     # Variable to store intercepted data
     captured_data = None
 
-    async def handle_response(response):
+    async def handle_route(route):
         nonlocal captured_data
         
-        # Log all network requests for debugging
-        if "neutrl.fi" in response.url:
-            print(f"🌐 Network request: {response.url} [{response.status}]")
+        # Let the request proceed normally
+        response = await route.fetch()
         
-        # Check if this is the sentio API endpoint
-        if "sentio" in response.url:
-            print(f"🎯 Found sentio request: {response.url} [Status: {response.status}]")
-            try:
-                # Get the response body
-                body = await response.json()
+        # Get the response body BEFORE it's consumed
+        try:
+            body_text = await response.text()
+            body = json.loads(body_text)
+            
+            print(f"🎯 Intercepted sentio request [Status: {response.status}]")
+            print(f"📦 Response body keys: {list(body.keys())}")
+            
+            # Check if this has the correct structure
+            if (body.get("data") and 
+                "seasonPrograms" in body["data"]):
                 
-                print(f"📦 Response body keys: {list(body.keys())}")
+                print(f"✅ Found seasonPrograms data!")
+                print(f"   Programs: {len(body['data']['seasonPrograms'])}")
+                print(f"   User: {body['data'].get('user')}")
                 
-                # If there's an error, print it
-                if "error" in body:
-                    print(f"❌ API Error: {body['error']}")
-                    if response.status == 403:
-                        print(f"⚠️ 403 Forbidden - Bot protection is blocking the request")
-                    return  # Don't process error responses
-                
-                if "data" in body:
-                    print(f"📦 Data keys: {list(body['data'].keys())}")
-                
-                # Check if this has the structure we want (seasonPrograms and user: null)
-                if (body.get("data") and 
-                    "seasonPrograms" in body["data"] and 
-                    body["data"].get("user") is None):
-                    
-                    print(f"✅ Captured correct API response!")
-                    print(f"   Programs found: {len(body['data']['seasonPrograms'])}")
-                    captured_data = body
-                else:
-                    print(f"⚠️ Response structure doesn't match (user={body.get('data', {}).get('user')})")
-                    
-            except Exception as e:
-                print(f"⚠️ Could not parse response from {response.url}: {e}")
+                # Store the data
+                captured_data = body
+                print(f"✅ Data captured successfully!")
+            else:
+                print(f"⚠️ Response doesn't have seasonPrograms")
+            
+            # Continue with the response to the page
+            await route.fulfill(response=response, body=body_text)
+            
+        except Exception as e:
+            print(f"⚠️ Error intercepting response: {e}")
+            # If something fails, just continue normally
+            await route.fulfill(response=response)
 
     async with async_playwright() as p:
         parsed = urlparse(proxy_url)
@@ -125,9 +121,10 @@ async def scrape_neutrl_stats():
                 window.chrome = {runtime: {}};
             """)
 
-            # CRITICAL: Attach listener IMMEDIATELY before any navigation
-            page.on("response", handle_response)
-            print("🎧 Response listener attached - ready to capture network traffic")
+            # CRITICAL: Attach route interceptor IMMEDIATELY before any navigation
+            # This intercepts the request/response and lets us read the body
+            await page.route("**/api/sentio", handle_route)
+            print("🎧 Route interceptor attached for /api/sentio")
 
             try:
                 # Verify proxy first
