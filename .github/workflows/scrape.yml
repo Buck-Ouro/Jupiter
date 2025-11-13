@@ -37,3 +37,10 @@ jobs:
         SHEET_ID: ${{ secrets.SHEET_ID }}
         PROXY_HTTP: ${{ secrets.PROXY_HTTP }}
       run: python reservoir.py
+
+    - name: Run Neutrl script
+      env:
+        GOOGLEAPI: ${{ secrets.GOOGLEAPI }}
+        SHEET_ID: ${{ secrets.SHEET_ID }}
+        PROXY_HTTP: ${{ secrets.PROXY_HTTP }}
+      run: python neutrl.py
