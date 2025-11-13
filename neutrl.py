@@ -97,20 +97,39 @@ async def scrape_neutrl_stats():
                 await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
                 await page.wait_for_timeout(2000)
                 await page.evaluate("window.scrollTo(0, 0)")
-                
-                print("⏳ Waiting additional 5 seconds for TVL to load...")
-                await page.wait_for_timeout(5000)
+                await page.wait_for_timeout(2000)
 
-                print("📄 Extracting page content...")
-                body_text = await page.inner_text("body")
-                print(f"📊 Retrieved {len(body_text)} characters")
+                print("📄 Extracting rewards page content...")
+                rewards_text = await page.inner_text("body")
+                
+                # Now navigate to metrics page for TVL/NUSD Supply
+                print("\n📍 Navigating to Neutrl metrics page for NUSD Supply...")
+                await page.goto("https://app.neutrl.fi/metrics", wait_until="networkidle", timeout=60000)
+                
+                print("⏳ Waiting for metrics to load...")
+                await page.wait_for_timeout(5000)
+                
+                # Scroll metrics page
+                await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                await page.wait_for_timeout(2000)
+                await page.evaluate("window.scrollTo(0, 0)")
+                await page.wait_for_timeout(2000)
+
+                print("📄 Extracting metrics page content...")
+                metrics_text = await page.inner_text("body")
+                print(f"📊 Retrieved {len(rewards_text)} characters from rewards page")
+                print(f"📊 Retrieved {len(metrics_text)} characters from metrics page")
                 print("=" * 80)
-                print("FIRST 2000 CHARACTERS:")
+                print("REWARDS PAGE (first 1000 chars):")
                 print("=" * 80)
-                print(body_text[:2000])
+                print(rewards_text[:1000])
+                print("=" * 80)
+                print("METRICS PAGE (first 1000 chars):")
+                print("=" * 80)
+                print(metrics_text[:1000])
                 print("=" * 80)
                 
-                return body_text
+                return rewards_text, metrics_text
 
             except Exception as e:
                 print(f"❌ Error during scraping: {e}")
@@ -120,11 +139,13 @@ async def scrape_neutrl_stats():
 
 # Run scraper
 print("🚀 Starting Neutrl scraper...")
-text = asyncio.get_event_loop().run_until_complete(scrape_neutrl_stats())
+rewards_text, metrics_text = asyncio.get_event_loop().run_until_complete(scrape_neutrl_stats())
 
-# Initialize lines
-lines = text.splitlines()
-print(f"\n📝 Total lines extracted: {len(lines)}")
+# Initialize lines from both pages
+rewards_lines = rewards_text.splitlines()
+metrics_lines = metrics_text.splitlines()
+print(f"\n📝 Rewards page: {len(rewards_lines)} lines")
+print(f"📝 Metrics page: {len(metrics_lines)} lines")
 
 # Step 4: Extract Data
 def extract_value_after_keyword(keyword, lines, lookahead=10):
@@ -142,8 +163,8 @@ def extract_value_after_keyword(keyword, lines, lookahead=10):
                 # Check for patterns like "64.40B" or "1966" or "63520224569.86"
                 cleaned = next_line.replace(",", "")
                 
-                # Match numbers with optional B/M/K suffix
-                match = re.match(r"^([\d.]+)([BMK]?)$", cleaned)
+                # Match numbers with optional B/M/K suffix and dollar signs
+                match = re.match(r"^[\$]?([\d.]+)([BMK]?)$", cleaned)
                 if match:
                     number_str = match.group(1)
                     suffix = match.group(2)
@@ -193,27 +214,29 @@ def convert_to_number(value_str, number_str, suffix):
 
 print("\n🔍 Searching for data fields...")
 
+# Extract from REWARDS page
 # Extract S1 Rewards Issued (Total Points) - look AFTER the keyword
-rewards_str, rewards_num, rewards_suffix = extract_value_after_keyword("S1 REWARDS ISSUED", lines, lookahead=5)
+rewards_str, rewards_num, rewards_suffix = extract_value_after_keyword("S1 REWARDS ISSUED", rewards_lines, lookahead=5)
 print(f"   S1 Rewards Issued (B): {rewards_str if rewards_str else 'NOT FOUND'}")
 
 # Extract Total Participants - look AFTER the keyword
-participants_str, participants_num, participants_suffix = extract_value_after_keyword("TOTAL PARTICIPANTS", lines, lookahead=5)
+participants_str, participants_num, participants_suffix = extract_value_after_keyword("TOTAL PARTICIPANTS", rewards_lines, lookahead=5)
 print(f"   Total Participants (C): {participants_str if participants_str else 'NOT FOUND'}")
 
-# Extract TVL - look BEFORE the keyword (format: $123M TVL)
-tvl_str, tvl_num, tvl_suffix = extract_value_before_keyword("TVL", lines, lookback=5)
-print(f"   TVL (D): {tvl_str if tvl_str else 'NOT FOUND'}")
+# Extract from METRICS page
+# Extract NUSD Supply - look AFTER the keyword (format: NUSD Supply \n $123.81M)
+nusd_str, nusd_num, nusd_suffix = extract_value_after_keyword("NUSD SUPPLY", metrics_lines, lookahead=5)
+print(f"   NUSD Supply/TVL (D): {nusd_str if nusd_str else 'NOT FOUND'}")
 
 # Step 5: Convert to numbers
 total_points = convert_to_number(rewards_str, rewards_num, rewards_suffix)
 participants = int(float(participants_num)) if participants_num else 0
-tvl = convert_to_number(tvl_str, tvl_num, tvl_suffix)
+nusd_supply = convert_to_number(nusd_str, nusd_num, nusd_suffix)
 
 print(f"\n📊 Calculated values:")
 print(f"   Total Points (B): {total_points:,.2f}")
 print(f"   Participants (C): {participants:,}")
-print(f"   TVL (D): {tvl:,.2f}")
+print(f"   NUSD Supply (D): {nusd_supply:,.2f}")
 
 # Step 6: Write to Sheet
 print(f"\n💾 Writing to sheet row {row_idx}...")
@@ -232,9 +255,9 @@ sheet.update(
     value_input_option="USER_ENTERED"
 )
 
-# Write TVL to column D
+# Write NUSD Supply to column D
 sheet.update(
-    values=[[tvl]],
+    values=[[nusd_supply]],
     range_name=f"D{row_idx}:D{row_idx}",
     value_input_option="USER_ENTERED"
 )
@@ -243,4 +266,4 @@ print(f"✅ Row {row_idx} updated successfully!")
 print(f"   Date: {today_str}")
 print(f"   Total Points: {total_points:,.2f}")
 print(f"   Participants: {participants:,}")
-print(f"   TVL: {tvl:,.2f}")
+print(f"   NUSD Supply: {nusd_supply:,.2f}")
