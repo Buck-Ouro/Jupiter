@@ -124,28 +124,28 @@ lines = text.splitlines()
 print(f"\n📝 Total lines extracted: {len(lines)}")
 
 # Step 4: Extract Data
-def extract_value_before_keyword(keyword, lines, lookback=10):
+def extract_value_after_keyword(keyword, lines, lookahead=10):
     """
-    Find the keyword and look backwards for a number.
-    lookback: how many lines to search backwards
+    Find the keyword and look forward for a number.
+    lookahead: how many lines to search forward
     """
     for i, line in enumerate(lines):
         if keyword.upper() in line.upper():
             print(f"   Found keyword '{keyword}' at line {i}: {line}")
-            # Look backwards for a number
-            for j in range(max(0, i - lookback), i):
-                prev_line = lines[j].strip()
+            # Look forward for a number
+            for j in range(i + 1, min(len(lines), i + lookahead + 1)):
+                next_line = lines[j].strip()
                 # Remove commas and look for numbers (including decimals like 64.40B)
                 # Check for patterns like "64.40B" or "1966" or "63520224569.86"
-                cleaned = prev_line.replace(",", "")
+                cleaned = next_line.replace(",", "")
                 
                 # Match numbers with optional B/M/K suffix
                 match = re.match(r"^([\d.]+)([BMK]?)$", cleaned)
                 if match:
                     number_str = match.group(1)
                     suffix = match.group(2)
-                    print(f"   Found value: {prev_line} (number: {number_str}, suffix: {suffix})")
-                    return prev_line, number_str, suffix
+                    print(f"   Found value: {next_line} (number: {number_str}, suffix: {suffix})")
+                    return next_line, number_str, suffix
     return None, None, None
 
 def convert_to_number(value_str, number_str, suffix):
@@ -167,12 +167,12 @@ def convert_to_number(value_str, number_str, suffix):
 
 print("\n🔍 Searching for data fields...")
 
-# Extract S1 Rewards Issued (Total Points)
-rewards_str, rewards_num, rewards_suffix = extract_value_before_keyword("S1 REWARDS ISSUED", lines, lookback=10)
+# Extract S1 Rewards Issued (Total Points) - look AFTER the keyword
+rewards_str, rewards_num, rewards_suffix = extract_value_after_keyword("S1 REWARDS ISSUED", lines, lookahead=5)
 print(f"   S1 Rewards Issued (B): {rewards_str if rewards_str else 'NOT FOUND'}")
 
-# Extract Total Participants
-participants_str, participants_num, participants_suffix = extract_value_before_keyword("TOTAL PARTICIPANTS", lines, lookback=10)
+# Extract Total Participants - look AFTER the keyword
+participants_str, participants_num, participants_suffix = extract_value_after_keyword("TOTAL PARTICIPANTS", lines, lookahead=5)
 print(f"   Total Participants (C): {participants_str if participants_str else 'NOT FOUND'}")
 
 # Step 5: Convert to numbers
