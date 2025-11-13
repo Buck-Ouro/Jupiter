@@ -53,20 +53,31 @@ async def scrape_neutrl_stats():
     async def handle_response(response):
         nonlocal captured_data
         
+        # Log all network requests for debugging
+        if "neutrl.fi" in response.url:
+            print(f"🌐 Network request: {response.url} [{response.status}]")
+        
         # Check if this is the sentio API endpoint
-        if "app.neutrl.fi/api/sentio" in response.url:
+        if "sentio" in response.url:
+            print(f"🎯 Found sentio request: {response.url}")
             try:
                 # Get the response body
                 body = await response.json()
+                
+                print(f"📦 Response body keys: {list(body.keys())}")
+                if "data" in body:
+                    print(f"📦 Data keys: {list(body['data'].keys())}")
                 
                 # Check if this has the structure we want (seasonPrograms and user: null)
                 if (body.get("data") and 
                     "seasonPrograms" in body["data"] and 
                     body["data"].get("user") is None):
                     
-                    print(f"✅ Captured correct API response from: {response.url}")
-                    print(f"   Response structure: {json.dumps(body, indent=2)[:500]}...")
+                    print(f"✅ Captured correct API response!")
+                    print(f"   Programs found: {len(body['data']['seasonPrograms'])}")
                     captured_data = body
+                else:
+                    print(f"⚠️ Response structure doesn't match (user={body.get('data', {}).get('user')})")
                     
             except Exception as e:
                 print(f"⚠️ Could not parse response from {response.url}: {e}")
@@ -106,24 +117,65 @@ async def scrape_neutrl_stats():
                 
                 # Wait for API calls to complete
                 print("⏳ Waiting for API responses...")
-                await page.wait_for_timeout(5000)
+                await page.wait_for_timeout(8000)
 
-                # If data wasn't captured yet, try scrolling/interacting
-                if not captured_data:
-                    print("🔄 Attempting to trigger API call...")
-                    await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-                    await page.wait_for_timeout(2000)
-                    await page.evaluate("window.scrollTo(0, 0)")
-                    await page.wait_for_timeout(3000)
-
+                # Check if data was captured
                 if captured_data:
                     print("✅ Successfully captured data!")
                     return captured_data
+
+                # If not captured, try various interactions
+                print("🔄 Data not captured yet, trying interactions...")
+                
+                # Try clicking elements that might trigger the API
+                try:
+                    # Wait for any button or interactive element
+                    await page.wait_for_selector("button, [role='button'], a", timeout=5000)
+                    print("   Found interactive elements")
+                except:
+                    print("   No interactive elements found")
+                
+                # Scroll multiple times
+                for i in range(3):
+                    await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                    await page.wait_for_timeout(2000)
+                    if captured_data:
+                        print(f"✅ Data captured after scroll {i+1}!")
+                        return captured_data
+                
+                # Scroll back to top
+                await page.evaluate("window.scrollTo(0, 0)")
+                await page.wait_for_timeout(3000)
+                
+                if captured_data:
+                    print("✅ Data captured after scroll to top!")
+                    return captured_data
+
+                # Last resort: reload the page
+                print("🔄 Reloading page...")
+                await page.reload(wait_until="networkidle", timeout=60000)
+                await page.wait_for_timeout(5000)
+
+                if captured_data:
+                    print("✅ Successfully captured data after reload!")
+                    return captured_data
                 else:
-                    raise Exception("❌ Failed to capture API response after waiting")
+                    # Print page content for debugging
+                    print("\n📄 Page content (first 2000 chars):")
+                    body_text = await page.inner_text("body")
+                    print(body_text[:2000])
+                    print("\n📄 Page URL:", page.url)
+                    
+                    raise Exception("❌ Failed to capture API response after all attempts")
 
             except Exception as e:
                 print(f"❌ Error during scraping: {e}")
+                # Take screenshot for debugging
+                try:
+                    await page.screenshot(path="neutrl_error.png")
+                    print("📸 Screenshot saved as neutrl_error.png")
+                except:
+                    pass
                 raise
             finally:
                 await context.close()
