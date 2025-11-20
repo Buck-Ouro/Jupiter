@@ -44,3 +44,12 @@ jobs:
         SHEET_ID: ${{ secrets.SHEET_ID }}
         PROXY_HTTP: ${{ secrets.PROXY_HTTP }}
       run: python neutrl.py
+
+    - name: Run APY script
+      env:
+        GOOGLEAPI: ${{ secrets.GOOGLEAPI }}
+        SHEET_ID: ${{ secrets.SHEET_ID }}
+        PROXY_HTTP: ${{ secrets.PROXY_HTTP }}
+        TELEGRAM_KEY: ${{ secrets.TELEGRAM_KEY }}
+        CHAT_ID: ${{ secrets.CHAT_ID }}
+      run: python apy.py
