@@ -7,6 +7,7 @@ from playwright.async_api import async_playwright
 import nest_asyncio
 import requests
 import random
+from datetime import datetime
 
 nest_asyncio.apply()
 
@@ -239,7 +240,8 @@ async def fetch_infinifi_siusd():
 
 # --- TELEGRAM MESSAGE ---
 def send_telegram_message(reservoir_apy, avant_apys, mhyper_apy, yieldfi_apys, infinifi_siusd, infinifi_liusd):
-    lines = ["<b>Competitor Report 📊</b>\n"]
+    today = datetime.now().strftime("%d %b %Y")
+    lines = [f"<b>Competitor Report {today} 📊</b>\n"]
 
     # Reservoir
     lines.append("<u>Reservoir</u>")
