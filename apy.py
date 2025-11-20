@@ -209,6 +209,6 @@ if __name__ == "__main__":
     avant_apys = fetch_avant_apy()
     mhyper_apy = fetch_mhyper_apy()
     yieldfi_apys = fetch_yieldfi_apy()
-    infinifi_siusd = fetch_infinifi_siusd()
+    infinifi_siusd = asyncio.get_event_loop().run_until_complete(fetch_infinifi_siusd())
     infinifi_liusd = asyncio.get_event_loop().run_until_complete(scrape_infinifi_liusd())
     send_telegram_message(reservoir_apy, avant_apys, mhyper_apy, yieldfi_apys, infinifi_siusd, infinifi_liusd)
