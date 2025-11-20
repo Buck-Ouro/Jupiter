@@ -123,12 +123,25 @@ async def scrape_infinifi_liusd():
 
 # --- FETCH Infinifi siUSD APY ---
 def fetch_infinifi_siusd():
-    url = "https://eth-api.infinifi.xyz/api/protocol/data"
-    try:
-        data = requests.get(url, timeout=10).json()
-        return round(float(data["data"]["staked"]["siUSD"]["average7dAPY"]) * 100, 2)
-    except:
-        return None
+    async with async_playwright() as p:
+        parsed = urlparse(proxy_url)
+        proxy_config = {
+            "server": f"{parsed.scheme}://{parsed.hostname}:{parsed.port}",
+            "username": parsed.username,
+            "password": parsed.password
+        }
+        browser = await p.chromium.launch(headless=True, proxy=proxy_config)
+        page = await browser.new_page()
+        try:
+            response = await page.goto("https://eth-api.infinifi.xyz/api/protocol/data", wait_until="networkidle", timeout=60000)
+            data = await response.json()
+            siusd_apy = float(data["data"]["staked"]["siUSD"]["average7dAPY"]) * 100
+            return round(siusd_apy, 2)
+        except Exception as e:
+            print("Error fetching siUSD APY:", e)
+            return None
+        finally:
+            await browser.close()
 
 # --- TELEGRAM MESSAGE ---
 def send_telegram_message(reservoir_apy, avant_apys, mhyper_apy, yieldfi_apys, infinifi_siusd, infinifi_liusd):
