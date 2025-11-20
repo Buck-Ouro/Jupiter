@@ -6,6 +6,7 @@ from urllib.parse import urlparse
 from playwright.async_api import async_playwright
 import nest_asyncio
 import requests
+import random
 
 nest_asyncio.apply()
 
