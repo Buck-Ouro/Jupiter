@@ -122,18 +122,24 @@ async def scrape_infinifi_liusd():
             await browser.close()
 
 # --- FETCH Infinifi siUSD APY ---
-def fetch_infinifi_siusd():
+async def fetch_infinifi_siusd():
+    from urllib.parse import urlparse
+    parsed = urlparse(proxy_url)
+    proxy_config = {
+        "server": f"{parsed.scheme}://{parsed.hostname}:{parsed.port}",
+        "username": parsed.username,
+        "password": parsed.password
+    }
+
     async with async_playwright() as p:
-        parsed = urlparse(proxy_url)
-        proxy_config = {
-            "server": f"{parsed.scheme}://{parsed.hostname}:{parsed.port}",
-            "username": parsed.username,
-            "password": parsed.password
-        }
         browser = await p.chromium.launch(headless=True, proxy=proxy_config)
         page = await browser.new_page()
         try:
-            response = await page.goto("https://eth-api.infinifi.xyz/api/protocol/data", wait_until="networkidle", timeout=60000)
+            response = await page.goto(
+                "https://eth-api.infinifi.xyz/api/protocol/data",
+                wait_until="networkidle",
+                timeout=60000
+            )
             data = await response.json()
             siusd_apy = float(data["data"]["staked"]["siUSD"]["average7dAPY"]) * 100
             return round(siusd_apy, 2)
