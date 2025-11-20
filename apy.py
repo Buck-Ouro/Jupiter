@@ -17,6 +17,75 @@ chat_id = os.environ.get("CHAT_ID")
 if not proxy_url or not telegram_key or not chat_id:
     raise ValueError("Missing environment variables: PROXY_HTTP, TELEGRAM_KEY, or CHAT_ID")
 
+async def apply_stealth_techniques(page):
+    await page.add_init_script("""
+        Object.defineProperty(navigator, 'webdriver', { get: () => false });
+
+        Object.defineProperty(navigator, 'plugins', {
+            get: () => [
+                {name: 'Chrome PDF Plugin', description: 'Portable Document Format', filename: 'internal-pdf-viewer'},
+                {name: 'Chrome PDF Viewer', description: '', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai'},
+                {name: 'Native Client', description: '', filename: 'internal-nacl-plugin'}
+            ]
+        });
+
+        Object.defineProperty(navigator, 'languages', {
+            get: () => ['en-US', 'en']
+        });
+
+        window.navigator.chrome = {
+            runtime: {},
+            loadTimes: function() {},
+            csi: function() {},
+            app: {}
+        };
+
+        const originalQuery = window.navigator.permissions.query;
+        window.navigator.permissions.query = (parameters) => (
+            parameters.name === 'notifications'
+                ? Promise.resolve({ state: Notification.permission })
+                : originalQuery(parameters)
+        );
+
+        const getParameter = WebGLRenderingContext.prototype.getParameter;
+        WebGLRenderingContext.prototype.getParameter = function(parameter) {
+            if (parameter === 37445) return 'Intel Inc.';
+            if (parameter === 37446) return 'Intel Iris OpenGL Engine';
+            return getParameter.call(this, parameter);
+        };
+
+        delete window.cdc_adoQpoasnfa76pfcZLmcfl_Array;
+        delete window.cdc_adoQpoasnfa76pfcZLmcfl_Promise;
+        delete window.cdc_adoQpoasnfa76pfcZLmcfl_Symbol;
+
+        Object.defineProperty(screen, 'availWidth',  { get: () => 1920 });
+        Object.defineProperty(screen, 'availHeight', { get: () => 1080 });
+
+        const originalToString = Function.prototype.toString;
+        Function.prototype.toString = function() {
+            if (this === navigator.permissions.query) {
+                return 'function query() { [native code] }';
+            }
+            return originalToString.call(this);
+        };
+
+        Object.defineProperty(navigator, 'connection', {
+            get: () => ({ effectiveType: '4g', downlink: 10, rtt: 50 })
+        });
+
+        Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => 8 });
+        Object.defineProperty(navigator, 'deviceMemory', { get: () => 8 });
+    """)
+
+def get_realistic_user_agents():
+    return [
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    ]
+
 # --- SCRAPER FOR RESERVOIR ---
 async def scrape_reservoir_apy():
     async with async_playwright() as p:
@@ -102,22 +171,28 @@ async def scrape_infinifi_liusd():
             "username": parsed.username,
             "password": parsed.password
         }
+
+        user_agent = random.choice(get_realistic_user_agents())
+
         browser = await p.chromium.launch(headless=True, proxy=proxy_config)
-        page = await browser.new_page()
+        page = await browser.new_page(user_agent=user_agent)
+
+        await apply_stealth_techniques(page)
+
         try:
             await page.goto("https://app.infinifi.xyz/lock", wait_until="networkidle", timeout=60000)
             await page.wait_for_timeout(5000)
+
             content = await page.inner_text("body")
 
             liusd = {}
             for week in ["1 week", "4 week", "8 week"]:
                 pattern = rf"{week}.*?([\d.]+)%"
                 match = re.search(pattern, content, re.IGNORECASE | re.DOTALL)
-                if match:
-                    liusd[week] = round(float(match.group(1)), 2)
-                else:
-                    liusd[week] = None
+                liusd[week] = round(float(match.group(1)), 2) if match else None
+
             return liusd
+
         finally:
             await browser.close()
 
