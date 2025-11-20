@@ -123,28 +123,36 @@ async def scrape_infinifi_liusd():
 
 # --- FETCH Infinifi siUSD APY ---
 async def fetch_infinifi_siusd():
-    from urllib.parse import urlparse
-    parsed = urlparse(proxy_url)
-    proxy_config = {
-        "server": f"{parsed.scheme}://{parsed.hostname}:{parsed.port}",
-        "username": parsed.username,
-        "password": parsed.password
-    }
-
     async with async_playwright() as p:
+        parsed = urlparse(proxy_url)
+        proxy_config = {
+            "server": f"{parsed.scheme}://{parsed.hostname}:{parsed.port}",
+            "username": parsed.username,
+            "password": parsed.password
+        }
         browser = await p.chromium.launch(headless=True, proxy=proxy_config)
         page = await browser.new_page()
+
+        # Stealth
+        await page.add_init_script("""
+            Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+            Object.defineProperty(navigator, 'plugins', {get: () => [1,2,3,4,5]});
+            Object.defineProperty(navigator, 'languages', {get: () => ['en-US','en']});
+            window.chrome = {runtime: {}};
+        """)
+
         try:
-            response = await page.goto(
-                "https://eth-api.infinifi.xyz/api/protocol/data",
-                wait_until="networkidle",
-                timeout=60000
-            )
-            data = await response.json()
-            siusd_apy = float(data["data"]["staked"]["siUSD"]["average7dAPY"]) * 100
-            return round(siusd_apy, 2)
-        except Exception as e:
-            print("Error fetching siUSD APY:", e)
+            await page.goto("https://app.infinifi.xyz/stake", wait_until="networkidle", timeout=60000)
+            await page.wait_for_timeout(5000)
+            content = await page.inner_text("body")
+
+            # Log first 1000 chars to see what we got
+            print("=== Infinifi siUSD page snippet ===")
+            print(content[:1000])
+
+            match = re.search(r'siUSD.*?([\d.]+)%', content, re.IGNORECASE | re.DOTALL)
+            if match:
+                return round(float(match.group(1)), 2)
             return None
         finally:
             await browser.close()
