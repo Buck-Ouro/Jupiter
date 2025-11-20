@@ -256,10 +256,10 @@ def send_telegram_message(reservoir_apy, avant_apys, mhyper_apy, yieldfi_apys, i
     lines.append("<u>mHyper</u>")
     lines.append(f"mHyper APY (7 Day): {mhyper_apy if mhyper_apy is not None else '❌'}%\n")
 
-    # YieldFi
-    lines.append("<u>YieldFi</u>")
-    lines.append(f"yUSD APY (7 Day): {yieldfi_apys.get('yusd', '❌')}%")
-    lines.append(f"vyUSD APY (7 Day): {yieldfi_apys.get('vyusd', '❌')}%\n")
+    # YieldFi (Removed)
+    #lines.append("<u>YieldFi</u>")
+    #lines.append(f"yUSD APY (7 Day): {yieldfi_apys.get('yusd', '❌')}%")
+    #lines.append(f"vyUSD APY (7 Day): {yieldfi_apys.get('vyusd', '❌')}%\n")
 
     # Infinifi
     lines.append("<u>Infinifi</u>")
