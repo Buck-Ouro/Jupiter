@@ -142,17 +142,21 @@ async def fetch_infinifi_siusd():
         """)
 
         try:
-            await page.goto("https://app.infinifi.xyz/stake", wait_until="networkidle", timeout=60000)
-            await page.wait_for_timeout(5000)
-            content = await page.inner_text("body")
+            # Fetch the JSON directly from the API endpoint
+            await page.goto("https://eth-api.infinifi.xyz/api/protocol/data", wait_until="networkidle", timeout=60000)
+            content = await page.content()
+            
+            # Sometimes inner_text on "body" can truncate JSON, safer to use response text
+            response = await page.evaluate("() => document.body.innerText")
+            data = json.loads(response)
 
-            # Log first 1000 chars to see what we got
-            print("=== Infinifi siUSD page snippet ===")
-            print(content[:1000])
-
-            match = re.search(r'siUSD.*?([\d.]+)%', content, re.IGNORECASE | re.DOTALL)
-            if match:
-                return round(float(match.group(1)), 2)
+            # Extract staked average7dAPY
+            average7dAPY = data.get("data", {}).get("stats", {}).get("staked", {}).get("average7dAPY")
+            if average7dAPY is not None:
+                return round(float(average7dAPY) * 100, 2)  # Convert to percentage
+            return None
+        except Exception as e:
+            print(f"❌ Error fetching Infinifi siUSD APY: {e}")
             return None
         finally:
             await browser.close()
