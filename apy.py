@@ -39,28 +39,18 @@ async def scrape_reservoir_apy():
         """)
 
         try:
-            print("🌐 Visiting Reservoir mint page...")
             await page.goto(
                 "https://app.reservoir.xyz/mint?from=rUSD&fromNetwork=Ethereum&to=srUSDv2&toNetwork=Ethereum",
                 wait_until="networkidle",
                 timeout=60000
             )
             await page.wait_for_timeout(5000)
-
-            # Grab all page text
             content = await page.inner_text("body")
 
-            # Extract Current APY (dynamic pattern: e.g., 3%, 3.5%, 3.55%)
             match = re.search(r'Current APY[:\s]*([\d.]+)%', content, re.IGNORECASE)
             if match:
-                apy_value = round(float(match.group(1)), 2)
-                print(f"✅ Found Reservoir Current APY: {apy_value}%")
-            else:
-                apy_value = None
-                print("❌ Could not find Reservoir APY.")
-
-            return apy_value
-
+                return round(float(match.group(1)), 2)
+            return None
         finally:
             await browser.close()
 
@@ -73,54 +63,103 @@ def fetch_avant_apy():
     apys = {}
     for key, url in urls.items():
         try:
-            resp = requests.get(url, timeout=10)
-            data = resp.json()
+            data = requests.get(url, timeout=10).json()
             apys[key] = round(float(data.get("apy", 0)), 2)
-            print(f"✅ Avant {key} APY: {apys[key]}%")
-        except Exception as e:
+        except:
             apys[key] = None
-            print(f"❌ Error fetching Avant {key}: {e}")
     return apys
 
 # --- FETCH mHYPER APY ---
 def fetch_mhyper_apy():
     url = "https://api-prod.midas.app/api/data/apys"
     try:
-        resp = requests.get(url, timeout=10)
-        data = resp.json()
-        mhyper_apy = round(float(data.get("mhyper", 0)) * 100, 2)  # Convert to %
-        print(f"✅ mHYPER APY: {mhyper_apy}%")
-        return mhyper_apy
-    except Exception as e:
-        print(f"❌ Error fetching mHYPER APY: {e}")
+        data = requests.get(url, timeout=10).json()
+        return round(float(data.get("mhyper", 0)) * 100, 2)
+    except:
+        return None
+
+# --- FETCH YieldFi APY ---
+def fetch_yieldfi_apy():
+    urls = {
+        "yusd": "https://ctrl.yield.fi/t/apy/yusd/apyHistory",
+        "vyusd": "https://ctrl.yield.fi/t/apy/vyusd/apyHistory"
+    }
+    apys = {}
+    for key, url in urls.items():
+        try:
+            data = requests.get(url, timeout=10).json()
+            apys[key] = round(float(data["apy_history"][0]["apy"]), 2)
+        except:
+            apys[key] = None
+    return apys
+
+# --- SCRAPE Infinifi liUSD APY ---
+async def scrape_infinifi_liusd():
+    async with async_playwright() as p:
+        parsed = urlparse(proxy_url)
+        proxy_config = {
+            "server": f"{parsed.scheme}://{parsed.hostname}:{parsed.port}",
+            "username": parsed.username,
+            "password": parsed.password
+        }
+        browser = await p.chromium.launch(headless=True, proxy=proxy_config)
+        page = await browser.new_page()
+        try:
+            await page.goto("https://app.infinifi.xyz/lock", wait_until="networkidle", timeout=60000)
+            await page.wait_for_timeout(5000)
+            content = await page.inner_text("body")
+
+            liusd = {}
+            for week in ["1 week", "4 week", "8 week"]:
+                pattern = rf"{week}.*?([\d.]+)%"
+                match = re.search(pattern, content, re.IGNORECASE | re.DOTALL)
+                if match:
+                    liusd[week] = round(float(match.group(1)), 2)
+                else:
+                    liusd[week] = None
+            return liusd
+        finally:
+            await browser.close()
+
+# --- FETCH Infinifi siUSD APY ---
+def fetch_infinifi_siusd():
+    url = "https://eth-api.infinifi.xyz/api/protocol/data"
+    try:
+        data = requests.get(url, timeout=10).json()
+        return round(float(data["data"]["staked"]["siUSD"]["average7dAPY"]) * 100, 2)
+    except:
         return None
 
 # --- TELEGRAM MESSAGE ---
-def send_telegram_message(reservoir_apy, avant_apys, mhyper_apy):
+def send_telegram_message(reservoir_apy, avant_apys, mhyper_apy, yieldfi_apys, infinifi_siusd, infinifi_liusd):
     lines = ["<b>Competitor Report 📊</b>\n"]
 
     # Reservoir
-    if reservoir_apy is not None:
-        lines.append("<u>Reservoir</u>")
-        lines.append(f"wsrUSD APY: {reservoir_apy}%\n")
-    else:
-        lines.append("<u>Reservoir</u>")
-        lines.append("wsrUSD APY: ❌ Not found\n")
+    lines.append("<u>Reservoir</u>")
+    lines.append(f"wsrUSD APY: {reservoir_apy if reservoir_apy is not None else '❌'}%\n")
 
     # Avant
     lines.append("<u>Avant</u>")
-    savusd = f"{avant_apys.get('savusd', '❌')}%"
-    avusdx = f"{avant_apys.get('avusdx', '❌')}%"
-    lines.append(f"savUSD APY (Daily): {savusd}")
-    lines.append(f"avUSDx APY (Weekly): {avusdx}\n")
+    lines.append(f"savUSD APY (Daily): {avant_apys.get('savusd', '❌')}%")
+    lines.append(f"avUSDx APY (Weekly): {avant_apys.get('avusdx', '❌')}%\n")
 
     # mHYPER
     lines.append("<u>mHyper</u>")
-    mh = f"{mhyper_apy if mhyper_apy is not None else '❌'}%"
-    lines.append(f"mHyper APY (7 Day): {mh}")
+    lines.append(f"mHyper APY (7 Day): {mhyper_apy if mhyper_apy is not None else '❌'}%\n")
+
+    # YieldFi
+    lines.append("<u>YieldFi</u>")
+    lines.append(f"yUSD APY (7 Day): {yieldfi_apys.get('yusd', '❌')}%")
+    lines.append(f"vyUSD APY (7 Day): {yieldfi_apys.get('vyusd', '❌')}%\n")
+
+    # Infinifi
+    lines.append("<u>Infinifi</u>")
+    lines.append(f"siUSD APY: {infinifi_siusd if infinifi_siusd is not None else '❌'}%")
+    lines.append(f"liUSD 1 Week APY: {infinifi_liusd.get('1 week', '❌')}%")
+    lines.append(f"liUSD 4 Week APY: {infinifi_liusd.get('4 week', '❌')}%")
+    lines.append(f"liUSD 8 Week APY: {infinifi_liusd.get('8 week', '❌')}%")
 
     message = "\n".join(lines)
-
     url = f"https://api.telegram.org/bot{telegram_key}/sendMessage"
     payload = {
         "chat_id": chat_id,
@@ -138,4 +177,7 @@ if __name__ == "__main__":
     reservoir_apy = asyncio.get_event_loop().run_until_complete(scrape_reservoir_apy())
     avant_apys = fetch_avant_apy()
     mhyper_apy = fetch_mhyper_apy()
-    send_telegram_message(reservoir_apy, avant_apys, mhyper_apy)
+    yieldfi_apys = fetch_yieldfi_apy()
+    infinifi_siusd = fetch_infinifi_siusd()
+    infinifi_liusd = asyncio.get_event_loop().run_until_complete(scrape_infinifi_liusd())
+    send_telegram_message(reservoir_apy, avant_apys, mhyper_apy, yieldfi_apys, infinifi_siusd, infinifi_liusd)
