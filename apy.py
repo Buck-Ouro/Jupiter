@@ -13,11 +13,12 @@ nest_asyncio.apply()
 
 # --- CONFIG ---
 proxy_url = os.environ.get("PROXY_HTTP")
+proxy2_url = os.environ.get("PROXY2_HTTP")
 telegram_key = os.environ.get("TELEGRAM_KEY")
 chat_id = os.environ.get("CHAT_ID")
 
-if not proxy_url or not telegram_key or not chat_id:
-    raise ValueError("Missing environment variables: PROXY_HTTP, TELEGRAM_KEY, or CHAT_ID")
+if not proxy_url or not proxy2_url or not telegram_key or not chat_id:
+    raise ValueError("Missing environment variables: PROXY_HTTP, PROXY2_HTTP, TELEGRAM_KEY, or CHAT_ID")
 
 async def apply_stealth_techniques(page):
     await page.add_init_script("""
@@ -167,7 +168,7 @@ def fetch_yieldfi_apy():
 # --- SCRAPE Infinifi liUSD APY ---
 async def scrape_infinifi_liusd():
     async with async_playwright() as p:
-        parsed = urlparse(proxy_url)
+        parsed = urlparse(proxy2_url)
         proxy_config = {
             "server": f"{parsed.scheme}://{parsed.hostname}:{parsed.port}",
             "username": parsed.username,
@@ -177,7 +178,7 @@ async def scrape_infinifi_liusd():
         user_agent = random.choice(get_realistic_user_agents())
 
         browser = await p.chromium.launch(headless=True, proxy=proxy_config)
-        page = await browser.new_page(user_agent=user_agent)
+        page = await browser.new_page(user_agent=user_agent, ignore_https_errors=True)
 
         await apply_stealth_techniques(page)
 
