@@ -50,6 +50,7 @@ jobs:
         GOOGLEAPI: ${{ secrets.GOOGLEAPI }}
         SHEET_ID: ${{ secrets.SHEET_ID }}
         PROXY_HTTP: ${{ secrets.PROXY_HTTP }}
+        PROXY2_HTTP: ${{ secrets.PROXY2_HTTP }}
         TELEGRAM_KEY: ${{ secrets.TELEGRAM_KEY }}
         CHAT_ID: ${{ secrets.CHAT_ID }}
       run: python apy.py
