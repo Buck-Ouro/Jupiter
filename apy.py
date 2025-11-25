@@ -141,14 +141,23 @@ def fetch_avant_apy():
             apys[key] = None
     return apys
 
-# --- FETCH mHYPER APY ---
-def fetch_mhyper_apy():
+# --- FETCH Midas APY ---
+def fetch_midas_apys():
     url = "https://api-prod.midas.app/api/data/apys"
     try:
         data = requests.get(url, timeout=10).json()
-        return round(float(data.get("mhyper", 0)) * 100, 2)
+
+        return {
+            "mhyper": round(float(data.get("mhyper", 0)) * 100, 2),
+            "mapollo": round(float(data.get("mapollo", 0)) * 100, 2),
+            "medge": round(float(data.get("medge", 0)) * 100, 2),
+        }
     except:
-        return None
+        return {
+            "mhyper": None,
+            "mapollo": None,
+            "medge": None
+        }
 
 # --- FETCH YieldFi APY ---
 def fetch_yieldfi_apy():
@@ -240,7 +249,7 @@ async def fetch_infinifi_siusd():
             await browser.close()
 
 # --- TELEGRAM MESSAGE ---
-def send_telegram_message(reservoir_apy, avant_apys, mhyper_apy, yieldfi_apys, infinifi_siusd, infinifi_liusd):
+def send_telegram_message(reservoir_apy, avant_apys, midas_apy, yieldfi_apys, infinifi_siusd, infinifi_liusd):
     today = datetime.now().strftime("%d %b %Y")
     lines = [f"<b>Competitor Report {today} 📊</b>\n"]
 
@@ -253,9 +262,12 @@ def send_telegram_message(reservoir_apy, avant_apys, mhyper_apy, yieldfi_apys, i
     lines.append(f"savUSD APY (Daily): {avant_apys.get('savusd', '❌')}%")
     lines.append(f"avUSDx APY (Weekly): {avant_apys.get('avusdx', '❌')}%\n")
 
-    # mHYPER
-    lines.append("<u>mHyper</u>")
-    lines.append(f"mHyper APY (7 Day): {mhyper_apy if mhyper_apy is not None else '❌'}%\n")
+    # Midas
+    lines.append("<u>Midas</u>")
+    lines.append(f"mHyper APY (7 Day): {midas_apys.get('mhyper', '❌') if midas_apys.get('mhyper') is not None else '❌'}%")
+    lines.append(f"mApollo APY (7 Day): {midas_apys.get('mapollo', '❌') if midas_apys.get('mapollo') is not None else '❌'}%")
+    lines.append(f"mEdge APY (7 Day): {midas_apys.get('medge', '❌') if midas_apys.get('medge') is not None else '❌'}%\n")
+
 
     # YieldFi (Removed)
     #lines.append("<u>YieldFi</u>")
@@ -286,8 +298,8 @@ def send_telegram_message(reservoir_apy, avant_apys, mhyper_apy, yieldfi_apys, i
 if __name__ == "__main__":
     reservoir_apy = asyncio.get_event_loop().run_until_complete(scrape_reservoir_apy())
     avant_apys = fetch_avant_apy()
-    mhyper_apy = fetch_mhyper_apy()
+    midas_apy = fetch_midas_apys()
     yieldfi_apys = fetch_yieldfi_apy()
     infinifi_siusd = asyncio.get_event_loop().run_until_complete(fetch_infinifi_siusd())
     infinifi_liusd = asyncio.get_event_loop().run_until_complete(scrape_infinifi_liusd())
-    send_telegram_message(reservoir_apy, avant_apys, mhyper_apy, yieldfi_apys, infinifi_siusd, infinifi_liusd)
+    send_telegram_message(reservoir_apy, avant_apys, midas_apy, yieldfi_apys, infinifi_siusd, infinifi_liusd)
