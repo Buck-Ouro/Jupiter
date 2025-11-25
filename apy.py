@@ -249,7 +249,7 @@ async def fetch_infinifi_siusd():
             await browser.close()
 
 # --- TELEGRAM MESSAGE ---
-def send_telegram_message(reservoir_apy, avant_apys, midas_apy, yieldfi_apys, infinifi_siusd, infinifi_liusd):
+def send_telegram_message(reservoir_apy, avant_apys, midas_apys, yieldfi_apys, infinifi_siusd, infinifi_liusd):
     today = datetime.now().strftime("%d %b %Y")
     lines = [f"<b>Competitor Report {today} 📊</b>\n"]
 
@@ -298,7 +298,7 @@ def send_telegram_message(reservoir_apy, avant_apys, midas_apy, yieldfi_apys, in
 if __name__ == "__main__":
     reservoir_apy = asyncio.get_event_loop().run_until_complete(scrape_reservoir_apy())
     avant_apys = fetch_avant_apy()
-    midas_apy = fetch_midas_apys()
+    midas_apys = fetch_midas_apys()
     yieldfi_apys = fetch_yieldfi_apy()
     infinifi_siusd = asyncio.get_event_loop().run_until_complete(fetch_infinifi_siusd())
     infinifi_liusd = asyncio.get_event_loop().run_until_complete(scrape_infinifi_liusd())
