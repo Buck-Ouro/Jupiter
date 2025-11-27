@@ -195,6 +195,64 @@ def extract_value_before_keyword(keyword, lines, lookback=10):
                     return prev_line, number_str, suffix
     return None, None, None
 
+def extract_total_supply(lines):
+    """
+    Extract Total Supply value with multiple format support.
+    Priority 1: TOTAL SUPPLY \n 1 month \n $ \n 137,625,703.19
+    Priority 2: Total Supply \n 1m \n $ \n 137,698,261.09
+    Priority 3: NUSD SUPPLY \n $123.81M (old format)
+    """
+    # Try Priority 1: TOTAL SUPPLY (uppercase)
+    for i, line in enumerate(lines):
+        if line.strip().upper() == "TOTAL SUPPLY":
+            print(f"   Found 'TOTAL SUPPLY' at line {i}")
+            for j in range(i + 1, min(len(lines), i + 10)):
+                check_line = lines[j].strip().lower()
+                if check_line in ["1 month", "1m"]:
+                    print(f"   Found time period '{lines[j].strip()}' at line {j}")
+                    for k in range(j + 1, min(len(lines), j + 5)):
+                        if lines[k].strip() == "$":
+                            print(f"   Found '$' at line {k}")
+                            if k + 1 < len(lines):
+                                value_line = lines[k + 1].strip()
+                                cleaned = value_line.replace(",", "")
+                                try:
+                                    float(cleaned)
+                                    print(f"   Found value: {value_line}")
+                                    return value_line, cleaned, ""
+                                except:
+                                    continue
+    
+    # Try Priority 2: Total Supply (mixed case)
+    for i, line in enumerate(lines):
+        if "TOTAL SUPPLY" in line.strip().upper() and line.strip().upper() != "TOTAL SUPPLY":
+            print(f"   Found 'Total Supply' (mixed case) at line {i}")
+            for j in range(i + 1, min(len(lines), i + 10)):
+                check_line = lines[j].strip().lower()
+                if check_line in ["1 month", "1m"]:
+                    print(f"   Found time period '{lines[j].strip()}' at line {j}")
+                    for k in range(j + 1, min(len(lines), j + 5)):
+                        if lines[k].strip() == "$":
+                            print(f"   Found '$' at line {k}")
+                            if k + 1 < len(lines):
+                                value_line = lines[k + 1].strip()
+                                cleaned = value_line.replace(",", "")
+                                try:
+                                    float(cleaned)
+                                    print(f"   Found value: {value_line}")
+                                    return value_line, cleaned, ""
+                                except:
+                                    continue
+    
+    # Try Priority 3: Old NUSD SUPPLY format (fallback)
+    print("   Trying old NUSD SUPPLY format...")
+    result = extract_value_after_keyword("NUSD SUPPLY", lines, lookahead=5)
+    if result[0]:
+        return result
+    
+    print("   TOTAL SUPPLY not found in any format")
+    return None, None, None
+
 def convert_to_number(value_str, number_str, suffix):
     """Convert string with suffix (B/M/K) to actual number"""
     if not number_str:
@@ -225,8 +283,15 @@ print(f"   Total Participants (C): {participants_str if participants_str else 'N
 
 # Extract from METRICS page
 # Extract NUSD Supply - look AFTER the keyword (format: NUSD Supply \n $123.81M)
-nusd_str, nusd_num, nusd_suffix = extract_value_after_keyword("NUSD SUPPLY", metrics_lines, lookahead=5)
-print(f"   NUSD Supply/TVL (D): {nusd_str if nusd_str else 'NOT FOUND'}")
+print("\n🔍 Extracting Total Supply from metrics page...")
+nusd_str, nusd_num, nusd_suffix = extract_total_supply(metrics_lines)
+print(f"   Total Supply (D): {nusd_str if nusd_str else 'NOT FOUND'}")
+
+if not nusd_str:
+    print("\n⚠️ Total Supply not found. Showing metrics page content:")
+    print("=" * 80)
+    print(metrics_text[:2000])
+    print("=" * 80)
 
 # Step 5: Convert to numbers
 total_points = convert_to_number(rewards_str, rewards_num, rewards_suffix)
