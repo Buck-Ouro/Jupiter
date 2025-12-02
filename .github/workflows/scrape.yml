@@ -3,7 +3,7 @@ name: Daily Scraper
 on:
   schedule:
     - cron: '50 0 * * *'
-  workflow_dispatch:  # Optional: allows manual runs
+  workflow_dispatch:
 
 jobs:
   run-script:
@@ -44,6 +44,13 @@ jobs:
         SHEET_ID: ${{ secrets.SHEET_ID }}
         PROXY_HTTP: ${{ secrets.PROXY_HTTP }}
       run: python neutrl.py
+
+    - name: Run Resolv script
+      env:
+        GOOGLEAPI: ${{ secrets.GOOGLEAPI }}
+        SHEET_ID: ${{ secrets.SHEET_ID }}
+        PROXY_HTTP: ${{ secrets.PROXY_HTTP }}
+      run: python resolv.py
 
     - name: Run APY script
       env:
