@@ -81,15 +81,20 @@ async def scrape_reservoir_stats():
                 await page.goto("https://app.reservoir.xyz/leaderboard", wait_until="domcontentloaded", timeout=90000)
                 print("✅ Initial page loaded!")
 
+                await page.wait_for_timeout(10000)
+
                 # Wait for and click the "I understand" button if it appears
                 try:
                     print("🔘 Looking for consent button...")
-                    await page.wait_for_selector('text="I understand"', timeout=5000)
+                    await page.wait_for_selector('text="I understand"', timeout=8000)
                     await page.click('text="I understand"')
                     print("✅ Clicked 'I understand' button")
                     await page.wait_for_timeout(5000)
                 except Exception as e:
                     print(f"⚠️ No consent button found: {e}")
+
+                print("⏳ Waiting for dynamic content to load...")
+                await page.wait_for_timeout(10000)
 
                 print("📄 Checking page content...")
                 
