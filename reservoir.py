@@ -69,9 +69,13 @@ async def scrape_reservoir_stats():
             page = context.pages[0] if context.pages else await context.new_page()
 
             try:
-                await page.goto("https://httpbin.org/ip", wait_until="domcontentloaded")
-                print("🌐 Proxy IP content:")
-                print(await page.inner_text("body"))
+                try:
+                    print("🌐 Checking proxy IP...")
+                    await page.goto("https://httpbin.org/ip", wait_until="domcontentloaded", timeout=10000)
+                    proxy_ip = await page.inner_text("body")
+                    print(f"✅ Proxy IP: {proxy_ip}")
+                except Exception as e:
+                    print(f"⚠️ Could not verify proxy IP (non-critical): {e}")
 
                 print("📍 Navigating to Reservoir leaderboard...")
                 await page.goto("https://app.reservoir.xyz/leaderboard", wait_until="networkidle", timeout=60000)
