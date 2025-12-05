@@ -83,9 +83,13 @@ async def scrape_neutrl_stats():
             """)
 
             try:
-                await page.goto("https://httpbin.org/ip", wait_until="domcontentloaded")
-                print("🌐 Proxy IP content:")
-                print(await page.inner_text("body"))
+                try:
+                    print("🌐 Checking proxy IP...")
+                    await page.goto("https://httpbin.org/ip", wait_until="domcontentloaded", timeout=10000)
+                    proxy_ip = await page.inner_text("body")
+                    print(f"✅ Proxy IP: {proxy_ip}")
+                except Exception as e:
+                    print(f"⚠️ Could not verify proxy IP (non-critical): {e}")
 
                 print("📍 Navigating to Neutrl rewards page...")
                 await page.goto("https://app.neutrl.fi/rewards", wait_until="networkidle", timeout=60000)
