@@ -79,7 +79,17 @@ async def scrape_reservoir_stats():
 
                 print("📍 Navigating to Reservoir leaderboard...")
                 await page.goto("https://app.reservoir.xyz/leaderboard", wait_until="domcontentloaded", timeout=90000)
-                await page.wait_for_timeout(8000)
+                print("✅ Initial page loaded!")
+
+                # Wait for and click the "I understand" button if it appears
+                try:
+                    print("🔘 Looking for consent button...")
+                    await page.wait_for_selector('text="I understand"', timeout=5000)
+                    await page.click('text="I understand"')
+                    print("✅ Clicked 'I understand' button")
+                    await page.wait_for_timeout(5000)
+                except Exception as e:
+                    print(f"⚠️ No consent button found: {e}")
 
                 print("📄 Checking page content...")
                 
@@ -138,8 +148,8 @@ print("\n🔍 Searching for data fields...")
 points_str = extract_value_before_keyword("POINTS EARNED IN SEASON 2", lines, lookback=10)
 print(f"   Points Earned (B): {points_str if points_str else 'NOT FOUND'}")
 
-# Extract Total Participants
-participants_str = extract_value_before_keyword("TOTAL PARTICIPANTS", lines, lookback=10)
+# Extract Total Participants - only look back 2 lines to avoid picking up points
+participants_str = extract_value_before_keyword("TOTAL PARTICIPANTS", lines, lookback=2)
 print(f"   Total Participants (C): {participants_str if participants_str else 'NOT FOUND'}")
 
 # Step 5: Convert to numbers
