@@ -78,7 +78,7 @@ async def scrape_reservoir_stats():
                     print(f"⚠️ Could not verify proxy IP (non-critical): {e}")
 
                 print("📍 Navigating to Reservoir leaderboard...")
-                await page.goto("https://app.reservoir.xyz/leaderboard", wait_until="networkidle", timeout=60000)
+                await page.goto("https://app.reservoir.xyz/leaderboard", wait_until="domcontentloaded", timeout=90000)
                 await page.wait_for_timeout(8000)
 
                 print("📄 Checking page content...")
