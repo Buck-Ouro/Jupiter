@@ -149,8 +149,8 @@ def extract_value_before_keyword(keyword, lines, lookback=5):
 
 print("\n🔍 Searching for data fields...")
 
-# Extract Points Earned in Season 2
-points_str = extract_value_before_keyword("POINTS EARNED IN SEASON 2", lines, lookback=10)
+# Extract Points Earned in Season 3
+points_str = extract_value_before_keyword("POINTS EARNED IN SEASON 3", lines, lookback=10)
 print(f"   Points Earned (B): {points_str if points_str else 'NOT FOUND'}")
 
 # Extract Total Participants - only look back 2 lines to avoid picking up points
