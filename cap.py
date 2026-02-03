@@ -108,7 +108,7 @@ async def scrape_cap_points():
                 # Step 6: Get total pages with retry
                 async def get_total_pages():
                     await page.goto(
-                        "https://api.cap.app/v1/caps/leaderboard?page=1",
+                        "https://api.cap.app/v1/caps/leaderboard?page=1&season=2",
                         wait_until="domcontentloaded",
                         timeout=30000  # Increased timeout
                     )
@@ -143,7 +143,7 @@ async def scrape_cap_points():
                     """Fetch single page with built-in retry for failed requests"""
                     for attempt in range(2):  # 2 attempts per page
                         try:
-                            url = f'https://api.cap.app/v1/caps/leaderboard?page={page_number}'
+                            url = f'https://api.cap.app/v1/caps/leaderboard?page={page_number}&season=2'
                             response = await page_instance.goto(
                                 url, wait_until='domcontentloaded', timeout=25000
                             )
