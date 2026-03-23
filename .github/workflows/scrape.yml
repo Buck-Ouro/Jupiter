@@ -38,13 +38,6 @@ jobs:
         PROXY_HTTP: ${{ secrets.PROXY_HTTP }}
       run: python reservoir.py
 
-    - name: Run Resolv script
-      env:
-        GOOGLEAPI: ${{ secrets.GOOGLEAPI }}
-        SHEET_ID: ${{ secrets.SHEET_ID }}
-        PROXY_HTTP: ${{ secrets.PROXY_HTTP }}
-      run: python resolv.py
-
     - name: Run Strata script
       env:
         GOOGLEAPI: ${{ secrets.GOOGLEAPI }}
