@@ -94,18 +94,9 @@ async def scrape_cap_points():
             )
             
             try:
-                # Step 5: Verify proxy connection with retry
-                async def verify_proxy():
-                    page = context.pages[0] if context.pages else await context.new_page()
-                    await page.goto("https://httpbin.org/ip", wait_until="domcontentloaded")
-                    proxy_info = await page.inner_text("body")
-                    print("🌐 Proxy IP content:")
-                    print(proxy_info)
-                    return page
-                
-                page = await with_retries(verify_proxy)
+                page = context.pages[0] if context.pages else await context.new_page()
 
-                # Step 6: Get total pages with retry
+                # Step 5: Get total pages with retry
                 async def get_total_pages():
                     await page.goto(
                         "https://api.cap.app/v1/caps/leaderboard?page=1&season=2",
