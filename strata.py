@@ -100,12 +100,8 @@ async def fetch_strata_stats():
         parsed = urlparse(proxy_url)
         proxy_str = f"{parsed.scheme}://{parsed.username}:{parsed.password}@{parsed.hostname}:{parsed.port}"
 
-        print(f"🌐 Using residential proxy...")
+        print(f"🌐 Using proxy fallback...")
         async with httpx.AsyncClient(timeout=30, headers=headers, proxy=proxy_str, verify=False) as client:
-            # Verify proxy IP
-            ip_resp = await client.get("https://httpbin.org/ip")
-            print(f"🌐 Proxy IP: {ip_resp.json().get('origin', 'unknown')}")
-
             resp = await client.get(api_url)
             if resp.status_code != 200:
                 raise Exception(f"API returned status {resp.status_code}: {resp.text[:200]}")
