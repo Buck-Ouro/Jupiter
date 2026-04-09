@@ -1,11 +1,11 @@
 import os
 import asyncio
 import json
-from playwright.async_api import async_playwright
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import nest_asyncio
 import datetime
+import httpx
 from urllib.parse import urlparse
 
 nest_asyncio.apply()
@@ -17,7 +17,7 @@ RETRY_DELAY = 2  # seconds between retries
 # Step 1: Authenticate with Google Sheets
 sa_json = os.environ.get("GOOGLEAPI")
 sheet_id = os.environ.get("SHEET_ID")
-proxy_url = os.environ.get("PROXY_HTTP")
+proxy_url = os.environ.get("PROXY2_HTTP")  # Residential proxy
 wallet_address = os.environ.get("Y_WALLET_ADD")
 
 if not sa_json or not sheet_id or not wallet_address:
@@ -52,7 +52,7 @@ else:
 async def with_retries(func, *args, **kwargs):
     """Execute function with retry logic"""
     last_exception = None
-    
+
     for attempt in range(MAX_RETRIES):
         try:
             print(f"🔄 Attempt {attempt + 1}/{MAX_RETRIES}")
@@ -60,106 +60,84 @@ async def with_retries(func, *args, **kwargs):
         except Exception as e:
             last_exception = e
             print(f"❌ Attempt {attempt + 1} failed: {str(e)}")
-            
-            if attempt < MAX_RETRIES - 1:  # Don't sleep on last attempt
+
+            if attempt < MAX_RETRIES - 1:
                 print(f"⏳ Waiting {RETRY_DELAY}s before retry...")
                 await asyncio.sleep(RETRY_DELAY)
             else:
                 print("🚫 All retries exhausted")
-    
+
     raise last_exception
 
-# Step 4: Scraper function
-async def scrape_strata_stats():
-    from pathlib import Path
-    from tempfile import TemporaryDirectory
+# Step 4: Fetch Strata stats via HTTP (no browser needed)
+async def fetch_strata_stats():
+    api_url = f"https://api.strata.money/points/stats?accountAddress={wallet_address}&season=1&chainId=1"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "application/json",
+    }
 
-    async with async_playwright() as p:
+    # Try direct first, then with proxy
+    async def try_fetch():
+        # First try direct (no proxy)
+        try:
+            print("📡 Trying direct connection...")
+            async with httpx.AsyncClient(timeout=15, headers=headers) as client:
+                resp = await client.get(api_url)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    if "data" in data:
+                        print("✅ Direct connection worked!")
+                        return data
+                print(f"⚠️ Direct failed with status {resp.status_code}, trying proxy...")
+        except Exception as e:
+            print(f"⚠️ Direct failed: {e}, trying proxy...")
+
+        # Fall back to residential proxy
+        if not proxy_url:
+            raise Exception("Direct connection failed and no PROXY2_HTTP configured")
+
         parsed = urlparse(proxy_url)
-        proxy_config = {
-            "server": f"{parsed.scheme}://{parsed.hostname}:{parsed.port}",
-            "username": parsed.username,
-            "password": parsed.password
-        }
+        proxy_str = f"{parsed.scheme}://{parsed.username}:{parsed.password}@{parsed.hostname}:{parsed.port}"
 
-        with TemporaryDirectory() as tmp_profile:
-            context = await p.chromium.launch_persistent_context(
-                user_data_dir=tmp_profile,
-                headless=True,
-                proxy=proxy_config,
-                ignore_https_errors=True,
-                viewport={"width": 1920, "height": 1080},
-                locale="en-US",
-                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-            )
-            
-            try:
-                # Step 5: Verify proxy connection with retry
-                async def verify_proxy():
-                    page = context.pages[0] if context.pages else await context.new_page()
-                    await page.goto("https://httpbin.org/ip", wait_until="domcontentloaded")
-                    proxy_info = await page.inner_text("body")
-                    print("🌐 Proxy IP content:")
-                    print(proxy_info)
-                    return page
-                
-                page = await with_retries(verify_proxy)
+        print(f"🌐 Using residential proxy...")
+        async with httpx.AsyncClient(timeout=30, headers=headers, proxy=proxy_str, verify=False) as client:
+            # Verify proxy IP
+            ip_resp = await client.get("https://httpbin.org/ip")
+            print(f"🌐 Proxy IP: {ip_resp.json().get('origin', 'unknown')}")
 
-                # Step 6: Fetch Strata stats with retry
-                async def get_strata_stats():
-                    api_url = f"https://api.strata.money/points/stats?accountAddress={wallet_address}&season=1&chainId=1"
-                    
-                    await page.goto(
-                        api_url,
-                        wait_until="domcontentloaded",
-                        timeout=30000
-                    )
-                    await page.wait_for_timeout(1000)
-                    
-                    pre_element = await page.query_selector("pre")
-                    if not pre_element:
-                        # Debug output
-                        page_title = await page.title()
-                        page_content = await page.content()
-                        print(f"🔍 Page title: {page_title}")
-                        print(f"🔍 Page content preview: {page_content[:300]}...")
-                        raise Exception("No <pre> element found - API might be blocked or changed")
-                        
-                    json_text = await pre_element.inner_text()
-                    data = json.loads(json_text.strip())
-                    
-                    # Extract global points from data.info.points
-                    global_points = data.get("data", {}).get("info", {}).get("points")
-                    
-                    # Extract account points from data.account.points.total
-                    account_points = data.get("data", {}).get("account", {}).get("points", {}).get("total")
-                    
-                    if global_points is None or account_points is None:
-                        raise Exception("Missing points data in response")
-                    
-                    print(f"📊 Fetched stats: Global points: {global_points:,}, Account points: {account_points:,}")
-                    return global_points, account_points
-                
-                global_points, account_points = await with_retries(get_strata_stats)
-                print(f"✅ Scraping complete: {global_points:,} global, {account_points:,} account")
-                
-                return global_points, account_points
+            resp = await client.get(api_url)
+            if resp.status_code != 200:
+                raise Exception(f"API returned status {resp.status_code}: {resp.text[:200]}")
 
-            finally:
-                await context.close()
+            data = resp.json()
+            if "data" not in data:
+                raise Exception(f"Unexpected response format: {str(data)[:200]}")
 
-# Step 7: Run scraper with retries
+            print("✅ Proxy connection worked!")
+            return data
+
+    data = await with_retries(try_fetch)
+
+    global_points = data.get("data", {}).get("info", {}).get("points")
+    account_points = data.get("data", {}).get("account", {}).get("points", {}).get("total")
+
+    if global_points is None or account_points is None:
+        raise Exception("Missing points data in response")
+
+    print(f"📊 Fetched stats: Global points: {global_points:,}, Account points: {account_points:,}")
+    return global_points, account_points
+
+# Step 5: Run and write to sheet
 async def main():
-    global_points, account_points = await with_retries(scrape_strata_stats)
-    
-    # Step 8: Write to Sheet (both columns at once)
+    global_points, account_points = await fetch_strata_stats()
+
     sheet.update(
         values=[[global_points, account_points]],
         range_name=f"B{row_idx}:C{row_idx}",
         value_input_option="USER_ENTERED"
     )
-    
+
     print(f"✅ Row {row_idx} updated with {global_points:,} global points and {account_points:,} account points.")
 
-# Run the main function
 asyncio.get_event_loop().run_until_complete(main())

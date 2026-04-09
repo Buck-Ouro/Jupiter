@@ -42,6 +42,6 @@ jobs:
       env:
         GOOGLEAPI: ${{ secrets.GOOGLEAPI }}
         SHEET_ID: ${{ secrets.SHEET_ID }}
-        PROXY_HTTP: ${{ secrets.PROXY_HTTP }}
+        PROXY2_HTTP: ${{ secrets.PROXY2_HTTP }}
         Y_WALLET_ADD: ${{ secrets.Y_WALLET_ADD }}
       run: python strata.py

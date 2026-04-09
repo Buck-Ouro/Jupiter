@@ -2,3 +2,4 @@ playwright
 gspread
 oauth2client
 nest_asyncio
+httpx
