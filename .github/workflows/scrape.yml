@@ -24,13 +24,6 @@ jobs:
         pip install -r requirements.txt
         python -m playwright install chromium
 
-    - name: Run Cap script
-      env:
-        GOOGLEAPI: ${{ secrets.GOOGLEAPI }}
-        SHEET_ID: ${{ secrets.SHEET_ID }}
-        PROXY_HTTP: ${{ secrets.PROXY_HTTP }}
-      run: python cap.py
-
     - name: Run Reservoir script
       env:
         GOOGLEAPI: ${{ secrets.GOOGLEAPI }}
