@@ -25,4 +25,5 @@ jobs:
     - name: Run Neutrl diagnostic
       env:
         PROXY2_HTTP: ${{ secrets.PROXY2_HTTP }}
+        PROXY_HTTP: ${{ secrets.PROXY_HTTP }}
       run: python neutrl_diag.py
