@@ -22,8 +22,9 @@ jobs:
         pip install -r requirements.txt
         python -m playwright install --with-deps chromium
 
-    - name: Run Neutrl diagnostic
+    - name: Run Neutrl script
       env:
-        PROXY2_HTTP: ${{ secrets.PROXY2_HTTP }}
+        GOOGLEAPI: ${{ secrets.GOOGLEAPI }}
+        SHEET_ID: ${{ secrets.SHEET_ID }}
         PROXY_HTTP: ${{ secrets.PROXY_HTTP }}
-      run: python neutrl_diag.py
+      run: python neutrl.py
