@@ -53,6 +53,61 @@ else:
 
 
 # Step 3: Scraper
+# The residential proxy rotates its exit IP per connection. A good exit returns
+# the full ~466K SSR page; a bad one draws a 503 from the proxy or the ~30K
+# Vercel "Security Checkpoint" challenge. We therefore retry with a fresh
+# browser context (hence a fresh proxy exit) until one clears, up to MAX_ATTEMPTS.
+MAX_ATTEMPTS = 5
+RETRY_BACKOFF_SEC = 6
+
+
+async def _attempt_fetch(p, launch_kwargs):
+    """One attempt with a fresh context/proxy exit. Returns html or None."""
+    from tempfile import TemporaryDirectory
+
+    with TemporaryDirectory() as tmp_profile:
+        context = await p.chromium.launch_persistent_context(
+            user_data_dir=tmp_profile, **launch_kwargs
+        )
+        page = context.pages[0] if context.pages else await context.new_page()
+
+        await page.add_init_script("""
+            Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+            Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
+            Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
+            window.chrome = {runtime: {}};
+        """)
+
+        try:
+            if proxy_url:
+                try:
+                    await page.goto("https://httpbin.org/ip",
+                                    wait_until="domcontentloaded", timeout=15000)
+                    print(f"   proxy IP: {(await page.inner_text('body')).strip()}")
+                except Exception as e:
+                    print(f"   ⚠️ proxy IP check failed (non-critical): "
+                          f"{str(e).splitlines()[0]}")
+
+            await page.goto(REWARDS_URL, wait_until="networkidle", timeout=90000)
+            await page.wait_for_timeout(3000)
+
+            html = await page.content()
+            print(f"   retrieved {len(html)} chars")
+
+            # Size is a reliable tell: ~32K = challenge page,
+            # ~166K = stripped shell (blocked), ~466K = the real thing.
+            if "seasonProgram" not in html:
+                preview = (await page.inner_text("body"))[:200].replace("\n", " ")
+                print(f"   ❌ no season payload (challenge/shell). preview: {preview}")
+                return None
+            return html
+        except Exception as e:
+            print(f"   ⚠️ attempt error: {str(e).splitlines()[0]}")
+            return None
+        finally:
+            await context.close()
+
+
 async def scrape_neutrl_html():
     """
     Return the raw page HTML, which carries the SSR JSON payload.
@@ -60,78 +115,49 @@ async def scrape_neutrl_html():
     We take page.content() rather than inner_text() because the payload holds
     full-precision values (227588662844.08435) while the rendered UI only shows
     a rounded "227.59B". No /metrics visit is needed either - NUSD supply is in
-    the same payload.
+    the same payload. Retries across fresh proxy exits to beat the rotating
+    proxy's intermittent 503 / Vercel-challenge draws.
     """
-    from tempfile import TemporaryDirectory
+    launch_kwargs = dict(
+        headless=True,
+        ignore_https_errors=True,
+        viewport={"width": 1920, "height": 1080},
+        locale="en-US",
+        user_agent=("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"),
+        args=[
+            '--disable-blink-features=AutomationControlled',
+            '--disable-dev-shm-usage',
+            '--no-sandbox',
+        ],
+        ignore_default_args=['--enable-automation'],
+    )
+
+    if proxy_url:
+        parsed = urlparse(proxy_url)
+        launch_kwargs["proxy"] = {
+            "server": f"{parsed.scheme}://{parsed.hostname}:{parsed.port}",
+            "username": parsed.username,
+            "password": parsed.password,
+        }
+    else:
+        print("⚠️ PROXY_HTTP not set - going direct.")
 
     async with async_playwright() as p:
-        launch_kwargs = dict(
-            headless=True,
-            ignore_https_errors=True,
-            viewport={"width": 1920, "height": 1080},
-            locale="en-US",
-            user_agent=("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                        "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"),
-            args=[
-                '--disable-blink-features=AutomationControlled',
-                '--disable-dev-shm-usage',
-                '--no-sandbox',
-            ],
-            ignore_default_args=['--enable-automation'],
-        )
-
-        if proxy_url:
-            parsed = urlparse(proxy_url)
-            launch_kwargs["proxy"] = {
-                "server": f"{parsed.scheme}://{parsed.hostname}:{parsed.port}",
-                "username": parsed.username,
-                "password": parsed.password,
-            }
-        else:
-            print("⚠️ PROXY_HTTP not set - going direct.")
-
-        with TemporaryDirectory() as tmp_profile:
-            context = await p.chromium.launch_persistent_context(
-                user_data_dir=tmp_profile, **launch_kwargs
-            )
-            page = context.pages[0] if context.pages else await context.new_page()
-
-            await page.add_init_script("""
-                Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-                Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
-                Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
-                window.chrome = {runtime: {}};
-            """)
-
-            try:
-                if proxy_url:
-                    try:
-                        print("🌐 Checking proxy IP...")
-                        await page.goto("https://httpbin.org/ip",
-                                        wait_until="domcontentloaded", timeout=15000)
-                        print(f"✅ Proxy IP: {await page.inner_text('body')}")
-                    except Exception as e:
-                        print(f"⚠️ Could not verify proxy IP (non-critical): {e}")
-
-                print(f"📍 Navigating to {REWARDS_URL} ...")
-                await page.goto(REWARDS_URL, wait_until="networkidle", timeout=90000)
-                await page.wait_for_timeout(3000)
-
-                html = await page.content()
-                print(f"📊 Retrieved {len(html)} chars")
-
-                # Size is a reliable tell: ~32K = challenge page,
-                # ~166K = stripped shell (blocked), ~466K = the real thing.
-                if "seasonProgram" not in html:
-                    print("❌ No season payload. Body preview:")
-                    print((await page.inner_text("body"))[:1500])
-                    raise RuntimeError(
-                        f"Season data absent from {len(html)} char page - "
-                        "likely a challenge page or a bot-stripped shell."
-                    )
+        for attempt in range(1, MAX_ATTEMPTS + 1):
+            print(f"📍 Attempt {attempt}/{MAX_ATTEMPTS}: {REWARDS_URL}")
+            html = await _attempt_fetch(p, launch_kwargs)
+            if html:
+                print(f"✅ Got the full page on attempt {attempt}.")
                 return html
-            finally:
-                await context.close()
+            if attempt < MAX_ATTEMPTS:
+                await asyncio.sleep(RETRY_BACKOFF_SEC)
+
+    raise RuntimeError(
+        f"Season data absent after {MAX_ATTEMPTS} attempts - the proxy kept "
+        "drawing a 503 or a Vercel challenge page. Try re-running; if it "
+        "persists the proxy pool or Vercel policy has changed."
+    )
 
 
 def extract_active_season(text):
