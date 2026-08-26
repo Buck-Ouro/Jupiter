@@ -1,163 +1,80 @@
 import os
-import asyncio
 import json
+import time
 import datetime
 import re
-from playwright.async_api import async_playwright
+import httpx
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
-import nest_asyncio
-from urllib.parse import urlparse
 
-nest_asyncio.apply()
+# ---------------------------------------------------------------------------
+# Neutrl scraper — Bright Data Web Unlocker edition (geo-aware).
+#
+# History of the break (Aug 2026):
+#   1. The old Playwright + rotating-residential-proxy approach died: Vercel now
+#      challenges EVERY residential exit ("Security Checkpoint | Code 21").
+#   2. Web Unlocker clears the Vercel checkpoint, but Neutrl GEO-BLOCKS restricted
+#      regions ("Not available here yet ... under current regulations",
+#      RouteGeoRestrictedBoundary). Web Unlocker's default exit (US/GB/AE ... )
+#      lands in a blocked region -> a 166K "Unavailable | Neutrl" shell with no
+#      season data. render:true does NOT help (geo block is server-side) and is
+#      flaky besides.
+#
+# The fix: pin Web Unlocker's egress to an ALLOWED country. In an allowed region
+# the raw HTML is the full ~442K SSR page and already carries the season payload
+# (seasonProgram), so NO browser render is needed. Verified allowed: de, sg, ch,
+# jp, nl, fr, ro, pl, br, za, hk, vn, id, in, tr. Blocked: us, gb, ae.
+# We try a short fallback list in case one country's pool is unavailable.
+# ---------------------------------------------------------------------------
 
-# The app moved from app.neutrl.fi to app.neutrl.finance, and season data now
-# lives on a per-season route. Bare /rewards serves a shell with no data.
-REWARDS_URL = "https://app.neutrl.finance/rewards/season-2"
+REWARDS_URLS = [
+    "https://app.neutrl.finance/rewards/season-2",   # current & final points season (to mid-Sept 2026)
+    "https://app.neutrl.finance/rewards",            # fallback
+]
 
-# Step 1: Authenticate with Google Sheets
-sa_json = os.environ.get("GOOGLEAPI")
-sheet_id = os.environ.get("SHEET_ID")
-# Wired on PROXY_HTTP: PROXY2_HTTP's credentials are broken, while PROXY_HTTP
-# (same residential gateway) tunnels fine from the runner. reservoir.py also
-# uses PROXY_HTTP.
-proxy_url = os.environ.get("PROXY_HTTP")
+WU_ENDPOINT = "https://api.brightdata.com/request"
+WU_ZONE     = "web_unlocker1"
+# Egress countries Neutrl allows. First that returns a parseable season wins.
+ALLOWED_COUNTRIES = ["de", "sg", "ch", "jp", "nl"]
 
-if not sa_json or not sheet_id:
+DRY_RUN = bool(os.environ.get("DRY_RUN"))
+
+# --- env ---
+sa_json          = os.environ.get("GOOGLEAPI")
+sheet_id         = os.environ.get("SHEET_ID")
+unlocker_key     = os.environ.get("UNLOCKER_KEY")
+
+if not unlocker_key:
+    raise ValueError("Missing environment variable: UNLOCKER_KEY")
+if not DRY_RUN and (not sa_json or not sheet_id):
     raise ValueError("Missing environment variables: GOOGLEAPI or SHEET_ID")
 
-creds = ServiceAccountCredentials.from_json_keyfile_dict(
-    json.loads(sa_json),
-    ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
-)
-client = gspread.authorize(creds)
-sheet = client.open_by_key(sheet_id).worksheet("Neutrl")
 
-# Step 2: Find or create today's row
-today = datetime.date.today()
-today_str = today.strftime("%d/%m/%Y")
-col_a = sheet.col_values(1)
-
-if today_str in col_a:
-    row_idx = col_a.index(today_str) + 1
-    if sheet.cell(row_idx, 2).value:
-        print("✅ Today's row already filled; exiting.")
-        exit()
-else:
-    row_idx = len(col_a) + 1
-    sheet.update(
-        values=[[today_str]],
-        range_name=f"A{row_idx}:A{row_idx}",
-        value_input_option="USER_ENTERED"
-    )
-
-
-# Step 3: Scraper
-# The residential proxy rotates its exit IP per connection. A good exit returns
-# the full ~466K SSR page; a bad one draws a 503 from the proxy or the ~30K
-# Vercel "Security Checkpoint" challenge. We therefore retry with a fresh
-# browser context (hence a fresh proxy exit) until one clears, up to MAX_ATTEMPTS.
-MAX_ATTEMPTS = 5
-RETRY_BACKOFF_SEC = 6
-
-
-async def _attempt_fetch(p, launch_kwargs):
-    """One attempt with a fresh context/proxy exit. Returns html or None."""
-    from tempfile import TemporaryDirectory
-
-    with TemporaryDirectory() as tmp_profile:
-        context = await p.chromium.launch_persistent_context(
-            user_data_dir=tmp_profile, **launch_kwargs
-        )
-        page = context.pages[0] if context.pages else await context.new_page()
-
-        await page.add_init_script("""
-            Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-            Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
-            Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
-            window.chrome = {runtime: {}};
-        """)
-
-        try:
-            if proxy_url:
-                try:
-                    await page.goto("https://httpbin.org/ip",
-                                    wait_until="domcontentloaded", timeout=15000)
-                    print(f"   proxy IP: {(await page.inner_text('body')).strip()}")
-                except Exception as e:
-                    print(f"   ⚠️ proxy IP check failed (non-critical): "
-                          f"{str(e).splitlines()[0]}")
-
-            await page.goto(REWARDS_URL, wait_until="networkidle", timeout=90000)
-            await page.wait_for_timeout(3000)
-
-            html = await page.content()
-            print(f"   retrieved {len(html)} chars")
-
-            # Size is a reliable tell: ~32K = challenge page,
-            # ~166K = stripped shell (blocked), ~466K = the real thing.
-            if "seasonProgram" not in html:
-                preview = (await page.inner_text("body"))[:200].replace("\n", " ")
-                print(f"   ❌ no season payload (challenge/shell). preview: {preview}")
-                return None
-            return html
-        except Exception as e:
-            print(f"   ⚠️ attempt error: {str(e).splitlines()[0]}")
-            return None
-        finally:
-            await context.close()
-
-
-async def scrape_neutrl_html():
-    """
-    Return the raw page HTML, which carries the SSR JSON payload.
-
-    We take page.content() rather than inner_text() because the payload holds
-    full-precision values (227588662844.08435) while the rendered UI only shows
-    a rounded "227.59B". No /metrics visit is needed either - NUSD supply is in
-    the same payload. Retries across fresh proxy exits to beat the rotating
-    proxy's intermittent 503 / Vercel-challenge draws.
-    """
-    launch_kwargs = dict(
-        headless=True,
-        ignore_https_errors=True,
-        viewport={"width": 1920, "height": 1080},
-        locale="en-US",
-        user_agent=("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"),
-        args=[
-            '--disable-blink-features=AutomationControlled',
-            '--disable-dev-shm-usage',
-            '--no-sandbox',
-        ],
-        ignore_default_args=['--enable-automation'],
-    )
-
-    if proxy_url:
-        parsed = urlparse(proxy_url)
-        launch_kwargs["proxy"] = {
-            "server": f"{parsed.scheme}://{parsed.hostname}:{parsed.port}",
-            "username": parsed.username,
-            "password": parsed.password,
-        }
-    else:
-        print("⚠️ PROXY_HTTP not set - going direct.")
-
-    async with async_playwright() as p:
-        for attempt in range(1, MAX_ATTEMPTS + 1):
-            print(f"📍 Attempt {attempt}/{MAX_ATTEMPTS}: {REWARDS_URL}")
-            html = await _attempt_fetch(p, launch_kwargs)
-            if html:
-                print(f"✅ Got the full page on attempt {attempt}.")
-                return html
-            if attempt < MAX_ATTEMPTS:
-                await asyncio.sleep(RETRY_BACKOFF_SEC)
-
-    raise RuntimeError(
-        f"Season data absent after {MAX_ATTEMPTS} attempts - the proxy kept "
-        "drawing a 503 or a Vercel challenge page. Try re-running; if it "
-        "persists the proxy pool or Vercel policy has changed."
-    )
+def fetch_via_unlocker(url, country):
+    """Fetch a URL through Web Unlocker from a specific egress country (no render).
+    Returns HTML str, or None on failure / geo-block / missing payload."""
+    payload = {"url": url, "method": "GET", "format": "raw",
+               "zone": WU_ZONE, "country": country}
+    headers = {"Authorization": f"Bearer {unlocker_key}",
+               "Content-Type": "application/json"}
+    try:
+        resp = httpx.post(WU_ENDPOINT, json=payload, headers=headers, timeout=90.0)
+    except Exception as e:
+        print(f"   ⚠️ Web Unlocker request error ({country}): {str(e).splitlines()[0]}")
+        return None
+    if resp.status_code != 200:
+        # 401/402/403 => zone/token/billing; else transient
+        print(f"   ⚠️ Web Unlocker HTTP {resp.status_code} ({country}): {resp.text[:200]}")
+        return None
+    html = resp.text
+    if "RouteGeoRestrictedBoundary" in html or "isn't offered in your region" in html:
+        print(f"   ⛔ geo-blocked from {country} ({len(html)} chars) — trying next region")
+        return None
+    print(f"   retrieved {len(html)} chars from {country}")
+    if "seasonProgram" not in html:
+        print(f"   ❌ no season payload from {country} (shell?)")
+        return None
+    return html
 
 
 def extract_active_season(text):
@@ -189,16 +106,72 @@ def extract_nusd_supply(text):
     return float(m.group(1)) if m else None
 
 
-print("🚀 Starting Neutrl scraper...")
-html = asyncio.get_event_loop().run_until_complete(scrape_neutrl_html())
+def scrape_neutrl():
+    """Try each URL from each allowed country until one yields a parseable season.
+    Returns (season, nusd_supply)."""
+    for country in ALLOWED_COUNTRIES:
+        for url in REWARDS_URLS:
+            print(f"📍 {url}  via {country}")
+            html = fetch_via_unlocker(url, country)
+            if not html:
+                continue
+            season = extract_active_season(html)
+            if season:
+                print(f"✅ Season parsed from {country}: {season['name']}")
+                return season, extract_nusd_supply(html)
+            print(f"   page had data but no active ethereum season matched ({country})")
+        time.sleep(2)
+    raise RuntimeError(
+        "No parseable Neutrl season from any allowed country. If HTTP was "
+        "401/402/403 the UNLOCKER_KEY/zone/billing is the problem; if every "
+        "region was geo-blocked, Neutrl may have widened restrictions; if pages "
+        "loaded but nothing parsed, the 'seasonProgram' anchors changed."
+    )
 
-season = extract_active_season(html)
-if not season:
-    raise RuntimeError("Page loaded but no active ethereum season matched.")
+
+# ------------------------------------------------------------------ DRY RUN
+if DRY_RUN:
+    print("🧪 DRY_RUN — scrape + parse only, no Google Sheets.")
+    season, nusd = scrape_neutrl()
+    print(f"\n📊 {season['name']}")
+    print(f"   Total Points (B): {season['points']:,.2f}")
+    print(f"   Participants (C): {season['participants']:,}")
+    print(f"   NUSD Supply (D): {f'{nusd:,.2f}' if nusd is not None else 'N/A'}")
+    raise SystemExit(0)
+
+
+# ------------------------------------------------------------------ Sheets auth
+creds = ServiceAccountCredentials.from_json_keyfile_dict(
+    json.loads(sa_json),
+    ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
+)
+client = gspread.authorize(creds)
+sheet = client.open_by_key(sheet_id).worksheet("Neutrl")
+
+# find or create today's row
+today = datetime.date.today()
+today_str = today.strftime("%d/%m/%Y")
+col_a = sheet.col_values(1)
+
+if today_str in col_a:
+    row_idx = col_a.index(today_str) + 1
+    if sheet.cell(row_idx, 2).value:
+        print("✅ Today's row already filled; exiting.")
+        raise SystemExit(0)
+else:
+    row_idx = len(col_a) + 1
+    sheet.update(
+        values=[[today_str]],
+        range_name=f"A{row_idx}:A{row_idx}",
+        value_input_option="USER_ENTERED"
+    )
+
+# scrape
+print("🚀 Starting Neutrl scraper (Web Unlocker, geo-aware)...")
+season, nusd_supply = scrape_neutrl()
 
 total_points = season["points"]
 participants = season["participants"]
-nusd_supply = extract_nusd_supply(html)   # None -> written as N/A
 
 print(f"\n📊 Extracted ({season['name']}):")
 print(f"   Total Points (B): {total_points:,.2f}")
@@ -206,9 +179,8 @@ print(f"   Participants (C): {participants:,}")
 print(f"   NUSD Supply (D): "
       f"{f'{nusd_supply:,.2f}' if nusd_supply is not None else 'N/A'}")
 
-# Step 4: Write to Sheet
+# write to sheet
 print(f"\n💾 Writing to sheet row {row_idx}...")
-
 sheet.update(values=[[total_points]], range_name=f"B{row_idx}:B{row_idx}",
              value_input_option="USER_ENTERED")
 sheet.update(values=[[participants]], range_name=f"C{row_idx}:C{row_idx}",

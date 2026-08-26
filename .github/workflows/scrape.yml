@@ -35,5 +35,5 @@ jobs:
       env:
         GOOGLEAPI: ${{ secrets.GOOGLEAPI }}
         SHEET_ID: ${{ secrets.SHEET_ID }}
-        PROXY_HTTP: ${{ secrets.PROXY_HTTP }}
+        UNLOCKER_KEY: ${{ secrets.UNLOCKER_KEY }}
       run: python neutrl.py
